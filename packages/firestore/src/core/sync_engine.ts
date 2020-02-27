@@ -35,12 +35,12 @@ import { RemoteEvent, TargetChange } from '../remote/remote_event';
 import { RemoteStore } from '../remote/remote_store';
 import { RemoteSyncer } from '../remote/remote_syncer';
 import { assert, fail } from '../util/assert';
+import { ByteString } from '../util/byte_string';
 import { Code, FirestoreError } from '../util/error';
 import * as log from '../util/log';
 import { primitiveComparator } from '../util/misc';
 import { ObjectMap } from '../util/obj_map';
 import { Deferred } from '../util/promise';
-import { ByteString } from '../util/proto_byte_string';
 import { SortedMap } from '../util/sorted_map';
 
 import { ClientId, SharedClientState } from '../local/shared_client_state';
@@ -66,7 +66,6 @@ import {
 import {
   AddedLimboDocument,
   LimboDocumentChange,
-  RemovedLimboDocument,
   View,
   ViewChange,
   ViewDocumentChanges
@@ -752,6 +751,10 @@ export class SyncEngine implements RemoteSyncer, SharedClientStateSyncer {
     targetId: TargetId,
     limboChanges: LimboDocumentChange[]
   ): Promise<void> {
+    if (limboChanges.length === 0) {
+      return;
+    }
+
     let removed = documentKeySet();
     for (const limboChange of limboChanges) {
       if (limboChange instanceof AddedLimboDocument) {
@@ -762,7 +765,7 @@ export class SyncEngine implements RemoteSyncer, SharedClientStateSyncer {
     const targetChanges: { [targetId: number]: TargetChange } = {};
     targetChanges[targetId] = new TargetChange(
       ByteString.fromBase64String(''),
-      /*current=*/ false,
+      /*current=*/ true,
       documentKeySet(),
       documentKeySet(),
       removed
@@ -772,7 +775,7 @@ export class SyncEngine implements RemoteSyncer, SharedClientStateSyncer {
       targetChanges,
       targetIdSet(),
       maybeDocumentMap(),
-      documentKeySet()
+      removed
     );
     await this.localStore.applyRemoteEvent(syntheticEvent);
   }
@@ -832,7 +835,7 @@ export class SyncEngine implements RemoteSyncer, SharedClientStateSyncer {
                 );
               });
           })
-          .then((viewDocChanges: ViewDocumentChanges) => {
+          .then(async (viewDocChanges: ViewDocumentChanges) => {
             const targetChange =
               remoteEvent && remoteEvent.targetChanges[queryView.targetId];
             const viewChange = queryView.view.applyChanges(
@@ -840,7 +843,7 @@ export class SyncEngine implements RemoteSyncer, SharedClientStateSyncer {
               /* updateLimboDocuments= */ this.isPrimary === true,
               targetChange
             );
-            this.updateTrackedLimbos(
+            await this.updateTrackedLimbos(
               queryView.targetId,
               viewChange.limboChanges
             );
