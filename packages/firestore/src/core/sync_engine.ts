@@ -23,7 +23,9 @@ import { TargetData, TargetPurpose } from '../local/target_data';
 import {
   documentKeySet,
   DocumentKeySet,
-  MaybeDocumentMap
+  maybeDocumentMap,
+  MaybeDocumentMap,
+  targetIdSet
 } from '../model/collections';
 import { MaybeDocument, NoDocument } from '../model/document';
 import { DocumentKey } from '../model/document_key';
@@ -38,6 +40,7 @@ import * as log from '../util/log';
 import { primitiveComparator } from '../util/misc';
 import { ObjectMap } from '../util/obj_map';
 import { Deferred } from '../util/promise';
+import { ByteString } from '../util/proto_byte_string';
 import { SortedMap } from '../util/sorted_map';
 
 import { ClientId, SharedClientState } from '../local/shared_client_state';
@@ -294,7 +297,10 @@ export class SyncEngine implements RemoteSyncer, SharedClientStateSyncer {
       queryResult
     );
     if (this.isPrimary) {
-      this.updateTrackedLimbos(queryView.targetId, viewSnapshot.limboChanges);
+      await this.updateTrackedLimbos(
+        queryView.targetId,
+        viewSnapshot.limboChanges
+      );
     }
     return viewSnapshot;
   }
@@ -742,28 +748,33 @@ export class SyncEngine implements RemoteSyncer, SharedClientStateSyncer {
     delete this.limboResolutionsByTarget[limboTargetId];
   }
 
-  private updateTrackedLimbos(
+  private async updateTrackedLimbos(
     targetId: TargetId,
     limboChanges: LimboDocumentChange[]
-  ): void {
+  ): Promise<void> {
+    let removed = documentKeySet();
     for (const limboChange of limboChanges) {
       if (limboChange instanceof AddedLimboDocument) {
-        this.limboDocumentRefs.addReference(limboChange.key, targetId);
-        this.trackLimboChange(limboChange);
-      } else if (limboChange instanceof RemovedLimboDocument) {
-        log.debug(LOG_TAG, 'Document no longer in limbo: ' + limboChange.key);
-        this.limboDocumentRefs.removeReference(limboChange.key, targetId);
-        const isReferenced = this.limboDocumentRefs.containsKey(
-          limboChange.key
-        );
-        if (!isReferenced) {
-          // We removed the last reference for this key
-          this.removeLimboTarget(limboChange.key);
-        }
-      } else {
-        fail('Unknown limbo change: ' + JSON.stringify(limboChange));
+        removed = removed.add(limboChange.key);
       }
     }
+
+    const targetChanges: { [targetId: number]: TargetChange } = {};
+    targetChanges[targetId] = new TargetChange(
+      ByteString.fromBase64String(''),
+      /*current=*/ false,
+      documentKeySet(),
+      documentKeySet(),
+      removed
+    );
+    const syntheticEvent = new RemoteEvent(
+      SnapshotVersion.MIN,
+      targetChanges,
+      targetIdSet(),
+      maybeDocumentMap(),
+      documentKeySet()
+    );
+    await this.localStore.applyRemoteEvent(syntheticEvent);
   }
 
   private trackLimboChange(limboChange: AddedLimboDocument): void {
