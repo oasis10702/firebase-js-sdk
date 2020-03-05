@@ -29,6 +29,7 @@ import { assert, fail } from '../util/assert';
 import { Code, FirestoreError } from '../util/error';
 import { isNullOrUndefined } from '../util/types';
 import { Target } from './target';
+import {contains, typeOrder} from "../model/proto_values";
 
 export enum LimitType {
   First = 'F',
@@ -524,7 +525,7 @@ export class FieldFilter extends Filter {
           'Comparing on key with IN, but filter value not an ArrayValue'
         );
         assert(
-          value.internalValue.every(elem => {
+          value.getValues().every(elem => {
             return elem instanceof RefValue;
           }),
           'Comparing on key with IN, but an array value was not a RefValue'
@@ -582,7 +583,7 @@ export class FieldFilter extends Filter {
     // Only compare types with matching backend order (such as double and int).
     return (
       other !== null &&
-      this.value.typeOrder === other.typeOrder &&
+      typeOrder(this.value.proto) === typeOrder(other.proto) &&
       this.matchesComparison(other.compareTo(this.value))
     );
   }
@@ -658,7 +659,7 @@ export class KeyFieldInFilter extends FieldFilter {
 
   matches(doc: Document): boolean {
     const arrayValue = this.value;
-    return arrayValue.internalValue.some(refValue => {
+    return arrayValue.getValues().some(refValue => {
       return doc.key.isEqual((refValue as RefValue).key);
     });
   }
@@ -672,7 +673,7 @@ export class ArrayContainsFilter extends FieldFilter {
 
   matches(doc: Document): boolean {
     const other = doc.field(this.field);
-    return other instanceof ArrayValue && other.contains(this.value);
+    return other instanceof ArrayValue && contains(other.proto.arrayValue!.values, this.value.proto);
   }
 }
 
@@ -685,7 +686,7 @@ export class InFilter extends FieldFilter {
   matches(doc: Document): boolean {
     const arrayValue = this.value;
     const other = doc.field(this.field);
-    return other !== null && arrayValue.contains(other);
+    return other !== null && contains(arrayValue.proto.arrayValue!.values , other.proto);
   }
 }
 
@@ -699,8 +700,8 @@ export class ArrayContainsAnyFilter extends FieldFilter {
     const other = doc.field(this.field);
     return (
       other instanceof ArrayValue &&
-      other.internalValue.some(lhsElem => {
-        return this.value.contains(lhsElem);
+      other.getValues().some(lhsElem => {
+        return contains(this.value.proto.arrayValue!.values, lhsElem.proto);
       })
     );
   }

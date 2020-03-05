@@ -1509,7 +1509,7 @@ export class Query<T = firestore.DocumentData> implements firestore.Query<T> {
         for (const arrayValue of value as FieldValue[]) {
           referenceList.push(this.parseDocumentIdValue(arrayValue));
         }
-        fieldValue = new ArrayValue(referenceList);
+        fieldValue = ArrayValue.fromList(referenceList);
       } else {
         fieldValue = this.parseDocumentIdValue(value);
       }
@@ -1715,7 +1715,7 @@ export class Query<T = firestore.DocumentData> implements firestore.Query<T> {
             `${methodName}().`
         );
       }
-      return this.boundFromDocument(methodName, snap._document!, before);
+      return this.boundFromDocument(snap._document!, before);
     } else {
       const allFields = [docOrField].concat(fields);
       return this.boundFromFields(methodName, allFields, before);
@@ -1734,7 +1734,6 @@ export class Query<T = firestore.DocumentData> implements firestore.Query<T> {
    * server timestamp.
    */
   private boundFromDocument(
-    methodName: string,
     doc: Document,
     before: boolean
   ): Bound {
@@ -1749,7 +1748,7 @@ export class Query<T = firestore.DocumentData> implements firestore.Query<T> {
     // results.
     for (const orderBy of this._query.orderBy) {
       if (orderBy.field.isKeyField()) {
-        components.push(new RefValue(this.firestore._databaseId, doc.key));
+        components.push( RefValue.valueOf(this.firestore._databaseId, doc.key));
       } else {
         const value = doc.field(orderBy.field);
         if (value instanceof ServerTimestampValue) {
@@ -1830,7 +1829,7 @@ export class Query<T = firestore.DocumentData> implements firestore.Query<T> {
           );
         }
         const key = new DocumentKey(path);
-        components.push(new RefValue(this.firestore._databaseId, key));
+        components.push(RefValue.valueOf(this.firestore._databaseId, key));
       } else {
         const wrapped = this.firestore._dataReader.parseQueryValue(
           methodName,
@@ -2060,10 +2059,10 @@ export class Query<T = firestore.DocumentData> implements firestore.Query<T> {
             `but '${path}' is not because it has an odd number of segments (${path.length}).`
         );
       }
-      return new RefValue(this.firestore._databaseId, new DocumentKey(path));
+      return  RefValue.valueOf(this.firestore._databaseId, new DocumentKey(path));
     } else if (documentIdValue instanceof DocumentReference) {
       const ref = documentIdValue as DocumentReference<T>;
-      return new RefValue(this.firestore._databaseId, ref._key);
+      return RefValue.valueOf(this.firestore._databaseId, ref._key);
     } else {
       throw new FirestoreError(
         Code.INVALID_ARGUMENT,

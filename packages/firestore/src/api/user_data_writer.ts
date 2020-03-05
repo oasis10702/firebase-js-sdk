@@ -30,6 +30,9 @@ import { DocumentReference, Firestore } from './database';
 import * as log from '../util/log';
 import { Blob } from './blob';
 import { Timestamp } from './timestamp';
+import {forEach} from "../util/obj";
+import {normalizeByteString} from "../model/proto_values";
+import {DocumentKey} from "../model/document_key";
 
 export type ServerTimestampBehavior = 'estimate' | 'previous' | 'none';
 
@@ -53,9 +56,9 @@ export class UserDataWriter<T> {
     } else if (value instanceof RefValue) {
       return this.convertReference(value);
     } else if (value instanceof BlobValue) {
-      return new Blob(value.internalValue);
+      return new Blob(normalizeByteString(value.proto.bytesValue!));
     } else if (value instanceof TimestampValue) {
-      return this.convertTimestamp(value.value());
+      return this.convertTimestamp(value.value() as Timestamp);
     } else if (value instanceof ServerTimestampValue) {
       return this.convertServerTimestamp(value);
     } else {
@@ -65,20 +68,22 @@ export class UserDataWriter<T> {
 
   private convertObject(data: ObjectValue): firestore.DocumentData {
     const result: firestore.DocumentData = {};
-    data.forEach((key, value) => {
-      result[key] = this.convertValue(value);
+    forEach (data.proto.mapValue!.fields || {}, (key, value) => {
+      result[key] = this.convertValue(FieldValue.of(value));
     });
     return result;
   }
 
   private convertArray(data: ArrayValue): unknown[] {
-    return data.internalValue.map(value => this.convertValue(value));
+    return data.getValues().map(value => this.convertValue(value));
   }
 
   private convertServerTimestamp(value: ServerTimestampValue): unknown {
     switch (this.serverTimestampBehavior) {
       case 'previous':
-        return value.previousValue ? this.convertValue(value.previousValue) : null;
+        return value.previousValue
+          ? this.convertValue(value.previousValue)
+          : null;
       case 'estimate':
         return this.convertTimestamp(value.localWriteTime);
       default:
@@ -95,7 +100,7 @@ export class UserDataWriter<T> {
   }
 
   private convertReference(value: RefValue): DocumentReference<T> {
-    const key = value.value();
+    const key = value.value() as DocumentKey;
     const database = this.firestore.ensureClientConfigured().databaseId();
     if (!value.databaseId.isEqual(database)) {
       // TODO(b/64130202): Somehow support foreign references.

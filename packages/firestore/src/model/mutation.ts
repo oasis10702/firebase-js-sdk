@@ -492,7 +492,7 @@ export class PatchMutation extends Mutation {
       if (!fieldPath.isEmpty()) {
         const newValue = this.data.field(fieldPath);
         if (newValue !== null) {
-          builder.set(fieldPath, newValue);
+          builder.set(fieldPath, newValue.proto);
         } else {
           builder.delete(fieldPath);
         }
@@ -596,10 +596,10 @@ export class TransformMutation extends Mutation {
         if (baseObject == null) {
           baseObject = ObjectValue.newBuilder().set(
             fieldTransform.field,
-            coercedValue
+            coercedValue.proto
           );
         } else {
-          baseObject = baseObject.set(fieldTransform.field, coercedValue);
+          baseObject = baseObject.set(fieldTransform.field, coercedValue.proto);
         }
       }
     }
@@ -724,7 +724,7 @@ export class TransformMutation extends Mutation {
     for (let i = 0; i < this.fieldTransforms.length; i++) {
       const fieldTransform = this.fieldTransforms[i];
       const fieldPath = fieldTransform.field;
-      builder.set(fieldPath, transformResults[i]);
+      builder.set(fieldPath, transformResults[i].proto);
     }
     return builder.build();
   }

@@ -18,18 +18,22 @@
 import { GeoPoint } from '../api/geo_point';
 import { Timestamp } from '../api/timestamp';
 import { DatabaseId } from '../core/database_info';
-import { assert } from '../util/assert';
-import {
-  numericComparator,
-  numericEquals,
-  primitiveComparator
-} from '../util/misc';
+import { assert, fail } from '../util/assert';
 import { DocumentKey } from './document_key';
 import { FieldMask } from './mutation';
-import { FieldPath } from './path';
-import { ByteString } from '../util/byte_string';
-import { SortedMap } from '../util/sorted_map';
+import { FieldPath, ResourcePath } from './path';
 import { SortedSet } from '../util/sorted_set';
+import * as api from '../protos/firestore_proto_api';
+import {
+  canonicalId,
+  compare,
+  equals,
+  estimateByteSize,
+  normalizeByteString,
+  normalizeTimestamp, typeOrder
+} from './proto_values';
+import { Blob } from '../api/blob';
+import { forEach } from '../util/obj';
 
 /**
  * Supported data value types:
@@ -79,235 +83,177 @@ export enum TypeOrder {
 export type FieldType = null | boolean | number | string | {};
 
 /**
- * A field value represents a datatype as stored by Firestore.
+ * Represents a FieldValue that is backed by a single Firestore V1 Value proto
+ * and implements Firestore's Value semantics for ordering and equality.
  */
-export abstract class FieldValue {
-  abstract readonly typeOrder: TypeOrder;
+export class FieldValue {
+  protected constructor(public readonly proto: api.Value) {}
 
-  abstract value(): FieldType;
-  abstract isEqual(other: FieldValue): boolean;
-  abstract compareTo(other: FieldValue): number;
+  // TODO(mrschmidt): Unify with UserDataReader.parseScalarValue()
+  static of(value: api.Value): FieldValue {
+    if ('nullValue' in value) {
+      return NullValue.INSTANCE;
+    } else if ('booleanValue' in value) {
+      return new BooleanValue(value);
+    } else if ('integerValue' in value) {
+      return new IntegerValue(value);
 
-  /**
-   * Returns an approximate (and wildly inaccurate) in-memory size for the field
-   * value.
-   *
-   * The memory size takes into account only the actual user data as it resides
-   * in memory and ignores object overhead.
-   */
-  abstract approximateByteSize(): number;
-
-  toString(): string {
-    const val = this.value();
-    return val === null ? 'null' : val.toString();
+    } else if ('doubleValue' in value) {
+      return new DoubleValue(value);
+    } else if ('timestampValue' in value) {
+      return new TimestampValue(value);
+    } else if ('stringValue' in value) {
+      return new StringValue(value)
+    } else if ('bytesValue' in value) {
+      return new BlobValue(value);
+    } else if ('referenceValue' in value) {
+      return new RefValue(value);
+    } else if ('geoPointValue' in value) {
+      return new GeoPointValue(value);
+    } else if ('arrayValue' in value) {
+      return new ArrayValue(value);
+    } else if ('mapValue' in value) {
+      if (ServerTimestampValue.isServerTimestamp(value)) {
+        return new ServerTimestampValue(value);
+      }
+      return new ObjectValue(value);
+    } else {
+      return fail('Invalid value type: ' + JSON.stringify(value));
+    }
+  }
+  
+  value(): FieldType {
+    return this.convertValue(this.proto);
   }
 
-  defaultCompareTo(other: FieldValue): number {
+  private convertValue(value: api.Value): FieldType {
+    if ('nullValue' in value) {
+      return null;
+    } else if ('booleanValue' in value) {
+      return value.booleanValue!;
+    } else if ('integerValue' in value) {
+      return value.integerValue!;
+    } else if ('doubleValue' in value) {
+      return value.doubleValue!;
+    } else if ('timestampValue' in value) {
+      const normalizedTimestamp = normalizeTimestamp(value.timestampValue!);
+      return new Timestamp(
+        normalizedTimestamp.seconds,
+        normalizedTimestamp.nanos
+      );
+    } else if ('stringValue' in value) {
+      return value.stringValue!;
+    } else if ('bytesValue' in value) {
+      return new Blob(normalizeByteString(value.bytesValue!));
+    } else if ('referenceValue' in value) {
+      return this.convertReference(value.referenceValue!);
+    } else if ('geoPointValue' in value) {
+      return new GeoPoint(
+        value.geoPointValue!.latitude || 0,
+        value.geoPointValue!.longitude || 0
+      );
+    } else if ('arrayValue' in value) {
+      return this.convertArray(value.arrayValue!.values || []);
+    } else if ('mapValue' in value) {
+      return this.convertMap(value.mapValue!.fields || {});
+    } else {
+      return fail('Unknown value type: ' + JSON.stringify(value));
+    }
+  }
+
+  private convertReference(value: string): DocumentKey {
+    // TODO(mrschmidt): Move `value()` and `convertValue()` to DocumentSnapshot,
+    // which would allow us to validate that the resource name points to the
+    // current project.
+    const resourceName = ResourcePath.fromString(value);
     assert(
-      this.typeOrder !== other.typeOrder,
-      'Default compareTo should not be used for values of same type.'
+      resourceName.length > 4 && resourceName.get(4) === 'documents',
+      'Tried to deserialize invalid key ' + resourceName.toString()
     );
-    const cmp = primitiveComparator(this.typeOrder, other.typeOrder);
-    return cmp;
+    return new DocumentKey(resourceName.popFirst(5));
   }
+
+  private convertArray(values: api.Value[]): unknown[] {
+    return values.map(v => this.convertValue(v));
+  }
+
+  private convertMap(
+    value: api.ApiClientObjectMap<api.Value>
+  ): { [k: string]: unknown } {
+    const result: { [k: string]: unknown } = {};
+    forEach(value, (k, v) => {
+      result[k] = this.convertValue(v);
+    });
+    return result;
+  }
+
+  approximateByteSize(): number {
+    return estimateByteSize(this.proto);
+  }
+
+  isEqual(other: FieldValue): boolean {
+    if (this === other) {
+      return true;
+    }
+    return equals(this.proto, other.proto);
+  }
+
+  compareTo(other: FieldValue): number {
+    return compare(this.proto, other.proto);
+  }
+
 }
 
 export class NullValue extends FieldValue {
   typeOrder = TypeOrder.NullValue;
 
-  // internalValue is unused but we add it to work around
-  // https://github.com/Microsoft/TypeScript/issues/15585
-  readonly internalValue = null;
-
-  private constructor() {
-    super();
-  }
-
   value(): null {
     return null;
   }
 
-  isEqual(other: FieldValue): boolean {
-    return other instanceof NullValue;
-  }
-
-  compareTo(other: FieldValue): number {
-    if (other instanceof NullValue) {
-      return 0;
-    }
-    return this.defaultCompareTo(other);
-  }
-
-  approximateByteSize(): number {
-    return 4;
-  }
-
-  static INSTANCE = new NullValue();
+  static INSTANCE = new NullValue({ nullValue: 'NULL_VALUE' });
 }
 
 export class BooleanValue extends FieldValue {
   typeOrder = TypeOrder.BooleanValue;
-
-  private constructor(readonly internalValue: boolean) {
-    super();
-  }
-
-  value(): boolean {
-    return this.internalValue;
-  }
-
-  isEqual(other: FieldValue): boolean {
-    return (
-      other instanceof BooleanValue &&
-      this.internalValue === other.internalValue
-    );
-  }
-
-  compareTo(other: FieldValue): number {
-    if (other instanceof BooleanValue) {
-      return primitiveComparator(this.internalValue, other.internalValue);
-    }
-    return this.defaultCompareTo(other);
-  }
-
-  approximateByteSize(): number {
-    return 4;
-  }
-
-  static of(value: boolean): BooleanValue {
+  
+  static valueOf(value: boolean): BooleanValue {
     return value ? BooleanValue.TRUE : BooleanValue.FALSE;
   }
 
-  static TRUE = new BooleanValue(true);
-  static FALSE = new BooleanValue(false);
+  static TRUE = new BooleanValue({ booleanValue: true });
+  static FALSE = new BooleanValue({ booleanValue: false });
 }
 
 /** Base class for IntegerValue and DoubleValue. */
 export abstract class NumberValue extends FieldValue {
   typeOrder = TypeOrder.NumberValue;
-
-  constructor(readonly internalValue: number) {
-    super();
-  }
-
-  value(): number {
-    return this.internalValue;
-  }
-
-  compareTo(other: FieldValue): number {
-    if (other instanceof NumberValue) {
-      return numericComparator(this.internalValue, other.internalValue);
-    }
-    return this.defaultCompareTo(other);
-  }
-
-  approximateByteSize(): number {
-    return 8;
-  }
 }
 
-export class IntegerValue extends NumberValue {
-  isEqual(other: FieldValue): boolean {
-    // NOTE: DoubleValue and IntegerValue instances may compareTo() the same,
-    // but that doesn't make them equal via isEqual().
-    if (other instanceof IntegerValue) {
-      return numericEquals(this.internalValue, other.internalValue);
-    } else {
-      return false;
-    }
-  }
-
-  // NOTE: compareTo() is implemented in NumberValue.
-}
+export class IntegerValue extends NumberValue {}
 
 export class DoubleValue extends NumberValue {
-  static NAN = new DoubleValue(NaN);
-  static POSITIVE_INFINITY = new DoubleValue(Infinity);
-  static NEGATIVE_INFINITY = new DoubleValue(-Infinity);
-
-  isEqual(other: FieldValue): boolean {
-    // NOTE: DoubleValue and IntegerValue instances may compareTo() the same,
-    // but that doesn't make them equal via isEqual().
-    if (other instanceof DoubleValue) {
-      return numericEquals(this.internalValue, other.internalValue);
-    } else {
-      return false;
-    }
-  }
-
-  // NOTE: compareTo() is implemented in NumberValue.
+  static NAN = new DoubleValue({ doubleValue: NaN });
+  static POSITIVE_INFINITY = new DoubleValue({ doubleValue: Infinity });
+  static NEGATIVE_INFINITY = new DoubleValue({ doubleValue: -Infinity });
 }
 
 // TODO(b/37267885): Add truncation support
 export class StringValue extends FieldValue {
   typeOrder = TypeOrder.StringValue;
-
-  constructor(readonly internalValue: string) {
-    super();
-  }
-
-  value(): string {
-    return this.internalValue;
-  }
-
-  isEqual(other: FieldValue): boolean {
-    return (
-      other instanceof StringValue && this.internalValue === other.internalValue
-    );
-  }
-
-  compareTo(other: FieldValue): number {
-    if (other instanceof StringValue) {
-      return primitiveComparator(this.internalValue, other.internalValue);
-    }
-    return this.defaultCompareTo(other);
-  }
-
-  approximateByteSize(): number {
-    // See https://developer.mozilla.org/en-US/docs/Web/JavaScript/Data_structures:
-    // "JavaScript's String type is [...] a set of elements of 16-bit unsigned
-    // integer values"
-    return this.internalValue.length * 2;
-  }
 }
 
 export class TimestampValue extends FieldValue {
   typeOrder = TypeOrder.TimestampValue;
-
-  constructor(readonly internalValue: Timestamp) {
-    super();
-  }
-
-  value(): Timestamp {
-    return this.internalValue;
-  }
-
-  isEqual(other: FieldValue): boolean {
-    return (
-      other instanceof TimestampValue &&
-      this.internalValue.isEqual(other.internalValue)
-    );
-  }
-
-  compareTo(other: FieldValue): number {
-    if (other instanceof TimestampValue) {
-      return this.internalValue._compareTo(other.internalValue);
-    } else if (other instanceof ServerTimestampValue) {
-      // Concrete timestamps come before server timestamps.
-      return -1;
-    } else {
-      return this.defaultCompareTo(other);
-    }
-  }
-
-  approximateByteSize(): number {
-    // Timestamps are made up of two distinct numbers (seconds + nanoseconds)
-    return 16;
-  }
 }
 
 /**
  * Represents a locally-applied ServerTimestamp.
+ *
+ * Server Timestamps are backed by MapValues that contain an internal field
+ * `__type__` with a value of `server_timestamp`. The previous value and local
+ * write time are stored in its `__previous_value__` and `__local_write_time__`
+ * fields respectively.
  *
  * Notes:
  * - ServerTimestampValue instances are created as the result of applying a
@@ -321,109 +267,115 @@ export class TimestampValue extends FieldValue {
  *   localWriteTime.
  */
 export class ServerTimestampValue extends FieldValue {
-  // TODO(mrschmidt): Represent ServerTimestamps as a PrimitiveType with a
-  //  Map containing a private `__type__` field (or similar).
+  private static SERVER_TIMESTAMP_SENTINEL = 'server_timestamp';
+  private static TYPE_KEY = '__type__';
+  private static PREVIOUS_VALUE_KEY = '__previous_value__';
+  private static LOCAL_WRITE_TIME_KEY = '__local_write_time__';
 
   typeOrder = TypeOrder.TimestampValue;
 
-  constructor(
-    readonly localWriteTime: Timestamp,
-    readonly previousValue: FieldValue | null
-  ) {
-    super();
+  static isServerTimestamp(value: api.Value): boolean {
+    const type = (value.mapValue?.fields || {})[ServerTimestampValue.TYPE_KEY]
+      ?.stringValue;
+    return type === ServerTimestampValue.SERVER_TIMESTAMP_SENTINEL;
   }
 
-  value(): null {
-    return null;
+  static valueOf(
+    localWriteTime: Timestamp,
+    previousValue: FieldValue | null
+  ): ServerTimestampValue {
+    const mapValue: api.MapValue = {
+      fields: {
+        [ServerTimestampValue.TYPE_KEY]: {
+          stringValue: ServerTimestampValue.SERVER_TIMESTAMP_SENTINEL
+        },
+        [ServerTimestampValue.LOCAL_WRITE_TIME_KEY]: {
+          timestampValue: {
+            seconds: localWriteTime.seconds,
+            nanos: localWriteTime.nanoseconds
+          }
+        }
+      }
+    };
+
+    if (previousValue) {
+      mapValue.fields![ServerTimestampValue.PREVIOUS_VALUE_KEY] =
+        previousValue.proto;
+    }
+
+    return new ServerTimestampValue({ mapValue });
   }
 
-  isEqual(other: FieldValue): boolean {
-    return (
-      other instanceof ServerTimestampValue &&
-      this.localWriteTime.isEqual(other.localWriteTime)
+  constructor(proto: api.Value) {
+    super(proto);
+    assert(
+      ServerTimestampValue.isServerTimestamp(proto),
+      'Backing value is not a ServerTimestampValue'
     );
   }
 
-  compareTo(other: FieldValue): number {
-    if (other instanceof ServerTimestampValue) {
-      return this.localWriteTime._compareTo(other.localWriteTime);
-    } else if (other.typeOrder === TypeOrder.TimestampValue) {
-      // Server timestamps come after all concrete timestamps.
-      return 1;
+  /**
+   * Returns the value of the field before this ServerTimestamp was set.
+   *
+   * Preserving the previous values allows the user to display the last resoled
+   * value until the backend responds with the timestamp.
+   */
+
+  get previousValue(): FieldValue | null {
+    const previousValue = this.proto.mapValue!.fields![
+      ServerTimestampValue.PREVIOUS_VALUE_KEY
+    ];
+
+    if (ServerTimestampValue.isServerTimestamp(previousValue)) {
+      return new ServerTimestampValue(previousValue).previousValue;
+    } else if (previousValue) {
+      return  FieldValue.of(previousValue);
     } else {
-      return this.defaultCompareTo(other);
+      return null;
     }
+  }
+
+  get localWriteTime(): Timestamp {
+    const localWriteTime = normalizeTimestamp(
+      this.proto.mapValue!.fields![ServerTimestampValue.LOCAL_WRITE_TIME_KEY]
+        .timestampValue!
+    );
+    return new Timestamp(localWriteTime.seconds, localWriteTime.nanos);
   }
 
   toString(): string {
     return '<ServerTimestamp localTime=' + this.localWriteTime.toString() + '>';
   }
-
-  approximateByteSize(): number {
-    return (
-      /* localWriteTime */ 16 +
-      (this.previousValue ? this.previousValue.approximateByteSize() : 0)
-    );
-  }
 }
 
 export class BlobValue extends FieldValue {
   typeOrder = TypeOrder.BlobValue;
-
-  constructor(readonly internalValue: ByteString) {
-    super();
-  }
-
-  value(): ByteString {
-    return this.internalValue;
-  }
-
-  isEqual(other: FieldValue): boolean {
-    return (
-      other instanceof BlobValue &&
-      this.internalValue.isEqual(other.internalValue)
-    );
-  }
-
-  compareTo(other: FieldValue): number {
-    if (other instanceof BlobValue) {
-      return this.internalValue.compareTo(other.internalValue);
-    }
-    return this.defaultCompareTo(other);
-  }
-
-  approximateByteSize(): number {
-    return this.internalValue.approximateByteSize();
-  }
 }
 
 export class RefValue extends FieldValue {
   typeOrder = TypeOrder.RefValue;
+  readonly databaseId: DatabaseId;
+  readonly key: DocumentKey;
 
-  constructor(readonly databaseId: DatabaseId, readonly key: DocumentKey) {
-    super();
+  constructor(proto: api.Value) {
+    super(proto);
+
+    const resourceName = ResourcePath.fromString(proto.referenceValue!);
+    assert(
+      resourceName.length >= 4 &&
+        resourceName.get(0) === 'projects' &&
+        resourceName.get(2) === 'databases' &&
+        resourceName.get(4) === 'documents',
+      'Tried to create ReferenceValue from invalid key: ' + resourceName
+    );
+    this.databaseId = new DatabaseId(resourceName.get(1), resourceName.get(3));
+    this.key = new DocumentKey(resourceName.popFirst(5));
   }
 
-  value(): DocumentKey {
-    return this.key;
-  }
-
-  isEqual(other: FieldValue): boolean {
-    if (other instanceof RefValue) {
-      return (
-        this.key.isEqual(other.key) && this.databaseId.isEqual(other.databaseId)
-      );
-    } else {
-      return false;
-    }
-  }
-
-  compareTo(other: FieldValue): number {
-    if (other instanceof RefValue) {
-      const cmp = this.databaseId.compareTo(other.databaseId);
-      return cmp !== 0 ? cmp : DocumentKey.comparator(this.key, other.key);
-    }
-    return this.defaultCompareTo(other);
+  static valueOf(databaseId: DatabaseId, key: DocumentKey): RefValue {
+    return new RefValue({
+      referenceValue: `projects/${databaseId.projectId}/databases/${databaseId.database}/documents/${key}`
+    });
   }
 
   approximateByteSize(): number {
@@ -438,125 +390,73 @@ export class RefValue extends FieldValue {
 export class GeoPointValue extends FieldValue {
   typeOrder = TypeOrder.GeoPointValue;
 
-  constructor(readonly internalValue: GeoPoint) {
-    super();
-  }
-
-  value(): GeoPoint {
-    return this.internalValue;
-  }
-
-  isEqual(other: FieldValue): boolean {
-    return (
-      other instanceof GeoPointValue &&
-      this.internalValue.isEqual(other.internalValue)
-    );
-  }
-
-  compareTo(other: FieldValue): number {
-    if (other instanceof GeoPointValue) {
-      return this.internalValue._compareTo(other.internalValue);
-    }
-    return this.defaultCompareTo(other);
-  }
-
   approximateByteSize(): number {
     // GeoPoints are made up of two distinct numbers (latitude + longitude)
     return 16;
   }
 }
 
+/**
+ * An ObjectValue represents a MapValue in the Firestore Proto and offers the
+ * ability to add and remove fields (via the ObjectValueBuilder).
+ */
 export class ObjectValue extends FieldValue {
-  typeOrder = TypeOrder.ObjectValue;
+  static EMPTY = new ObjectValue({ mapValue: {} });
 
-  constructor(readonly internalValue: SortedMap<string, FieldValue>) {
-    super();
+  constructor(proto: api.Value) {
+    super(proto);
+    assert(
+      !ServerTimestampValue.isServerTimestamp(proto),
+      "ServerTimestamps should be converted to ServerTimestampValue"
+    );
+    
   }
 
-  /** Returns a new ObjectValueBuilder instance that is based on an empty object. */
+  /** Returns a new Builder instance that is based on an empty object. */
   static newBuilder(): ObjectValueBuilder {
-    return new ObjectValueBuilder(ObjectValue.EMPTY.internalValue);
-  }
-
-  value(): JsonObject<FieldType> {
-    const result: JsonObject<FieldType> = {};
-    this.internalValue.inorderTraversal((key, val) => {
-      result[key] = val.value();
-    });
-    return result;
-  }
-
-  forEach(action: (key: string, value: FieldValue) => void): void {
-    this.internalValue.inorderTraversal(action);
-  }
-
-  isEqual(other: FieldValue): boolean {
-    if (other instanceof ObjectValue) {
-      const it1 = this.internalValue.getIterator();
-      const it2 = other.internalValue.getIterator();
-      while (it1.hasNext() && it2.hasNext()) {
-        const next1 = it1.getNext();
-        const next2 = it2.getNext();
-        if (next1.key !== next2.key || !next1.value.isEqual(next2.value)) {
-          return false;
-        }
-      }
-
-      return !it1.hasNext() && !it2.hasNext();
-    }
-
-    return false;
-  }
-
-  compareTo(other: FieldValue): number {
-    if (other instanceof ObjectValue) {
-      const it1 = this.internalValue.getIterator();
-      const it2 = other.internalValue.getIterator();
-      while (it1.hasNext() && it2.hasNext()) {
-        const next1: { key: string; value: FieldValue } = it1.getNext();
-        const next2: { key: string; value: FieldValue } = it2.getNext();
-        const cmp =
-          primitiveComparator(next1.key, next2.key) ||
-          next1.value.compareTo(next2.value);
-        if (cmp) {
-          return cmp;
-        }
-      }
-
-      // Only equal if both iterators are exhausted
-      return primitiveComparator(it1.hasNext(), it2.hasNext());
-    } else {
-      return this.defaultCompareTo(other);
-    }
-  }
-
-  contains(path: FieldPath): boolean {
-    return this.field(path) !== null;
-  }
-
-  field(path: FieldPath): FieldValue | null {
-    assert(!path.isEmpty(), "Can't get field of empty path");
-    let field: FieldValue | null = this;
-    path.forEach((pathSegment: string) => {
-      if (field instanceof ObjectValue) {
-        field = field.internalValue.get(pathSegment);
-      } else {
-        field = null;
-      }
-    });
-    return field;
+    return ObjectValue.EMPTY.toBuilder();
   }
 
   /**
-   * Returns a FieldMask built from all FieldPaths starting from this ObjectValue,
-   * including paths from nested objects.
+   * Returns the value at the given path or null.
+   *
+   * @param path the path to search
+   * @return The value at the path or if there it doesn't exist.
+   */
+  field(path: FieldPath): FieldValue | null {
+    if (path.isEmpty()) {
+      return this;
+    } else {
+      let value = this.proto;
+      for (let i = 0; i < path.length - 1; ++i) {
+        if (!value.mapValue!.fields) {
+          return null;
+        }
+        value = value.mapValue!.fields[path.get(i)];
+        if (typeOrder(value) !== TypeOrder.ObjectValue) {
+          return null;
+        }
+      }
+
+      value = (value.mapValue!.fields || {})[path.lastSegment()];
+      return FieldValue.of (value);
+    }
+  }
+
+  /**
+   * Returns a FieldMask built from all FieldPaths starting from this
+   * ObjectValue, including paths from nested objects.
    */
   fieldMask(): FieldMask {
+    return this.extractFieldMask(this.proto.mapValue!);
+  }
+
+  private extractFieldMask(value: api.MapValue): FieldMask {
     let fields = new SortedSet<FieldPath>(FieldPath.comparator);
-    this.internalValue.forEach((key, value) => {
+    forEach(value.fields || {}, (key, value) => {
       const currentPath = new FieldPath([key]);
-      if (value instanceof ObjectValue) {
-        const nestedMask = value.fieldMask();
+      if (typeOrder(value) ===  TypeOrder.ObjectValue) {
+        const nestedMask = this.extractFieldMask(value.mapValue!);
         const nestedFields = nestedMask.fields;
         if (nestedFields.isEmpty()) {
           // Preserve the empty map by adding it to the FieldMask.
@@ -569,40 +469,39 @@ export class ObjectValue extends FieldValue {
           });
         }
       } else {
+        // For nested and non-empty ObjectValues, add the FieldPath of the leaf
+        // nodes.
         fields = fields.add(currentPath);
       }
     });
     return FieldMask.fromSet(fields);
   }
 
-  approximateByteSize(): number {
-    let size = 0;
-    this.internalValue.inorderTraversal((key, val) => {
-      size += key.length + val.approximateByteSize();
-    });
-    return size;
-  }
-
-  toString(): string {
-    return this.internalValue.toString();
-  }
-
-  static EMPTY = new ObjectValue(
-    new SortedMap<string, FieldValue>(primitiveComparator)
-  );
-
   /** Creates a ObjectValueBuilder instance that is based on the current value. */
   toBuilder(): ObjectValueBuilder {
-    return new ObjectValueBuilder(this.internalValue);
+    return new ObjectValueBuilder(this);
   }
 }
 
 /**
+ * An Overlay, which contains an update to apply. Can either be Value proto, a
+ * map of Overlay values (to represent additional nesting at the given key) or
+ * `null` (to represent field deletes).
+ */
+type Overlay = Map<string, Overlay> | api.Value | null;
+
+/**
  * An ObjectValueBuilder provides APIs to set and delete fields from an
- * ObjectValue. All operations mutate the existing instance.
+ * ObjectValue.
  */
 export class ObjectValueBuilder {
-  constructor(private internalValue: SortedMap<string, FieldValue>) {}
+  /** A map that contains the accumulated changes in this builder. */
+  private overlayMap = new Map<string, Overlay>();
+
+  /**
+   * @param baseObject The object to mutate.
+   */
+  constructor(private readonly baseObject: ObjectValue) {}
 
   /**
    * Sets the field to the provided value.
@@ -611,34 +510,17 @@ export class ObjectValueBuilder {
    * @param value The value to set.
    * @return The current Builder instance.
    */
-  set(path: FieldPath, value: FieldValue): ObjectValueBuilder {
+  set(path: FieldPath, value: api.Value): ObjectValueBuilder {
     assert(!path.isEmpty(), 'Cannot set field for empty path on ObjectValue');
-    const childName = path.firstSegment();
-    if (path.length === 1) {
-      this.internalValue = this.internalValue.insert(childName, value);
-    } else {
-      // nested field
-      const child = this.internalValue.get(childName);
-      let obj: ObjectValue;
-      if (child instanceof ObjectValue) {
-        obj = child;
-      } else {
-        obj = ObjectValue.EMPTY;
-      }
-      const newChild = obj
-        .toBuilder()
-        .set(path.popFirst(), value)
-        .build();
-      this.internalValue = this.internalValue.insert(childName, newChild);
-    }
+    this.setOverlay(path, value);
     return this;
   }
 
   /**
-   * Removes the field at the current path. If there is no field at the
+   * Removes the field at the specified path. If there is no field at the
    * specified path, nothing is changed.
    *
-   * @param path The field path to remove
+   * @param path The field path to remove.
    * @return The current Builder instance.
    */
   delete(path: FieldPath): ObjectValueBuilder {
@@ -646,111 +528,113 @@ export class ObjectValueBuilder {
       !path.isEmpty(),
       'Cannot delete field for empty path on ObjectValue'
     );
-    const childName = path.firstSegment();
-    if (path.length === 1) {
-      this.internalValue = this.internalValue.remove(childName);
-    } else {
-      // nested field
-      const child = this.internalValue.get(childName);
-      if (child instanceof ObjectValue) {
-        const newChild = child
-          .toBuilder()
-          .delete(path.popFirst())
-          .build();
-        this.internalValue = this.internalValue.insert(
-          path.firstSegment(),
-          newChild
-        );
-      } else {
-        // Don't actually change a primitive value to an object for a delete
-      }
-    }
+    this.setOverlay(path, null);
     return this;
   }
 
+  /**
+   * Adds `value` to the overlay map at `path`. Creates nested map entries if
+   * needed.
+   */
+  private setOverlay(path: FieldPath, value: api.Value | null): void {
+    let currentLevel = this.overlayMap;
+
+    for (let i = 0; i < path.length - 1; ++i) {
+      const currentSegment = path.get(i);
+      let currentValue = currentLevel.get(currentSegment);
+
+      if (currentValue instanceof Map) {
+        // Re-use a previously created map
+        currentLevel = currentValue;
+      } else if (currentValue && typeOrder(currentValue) === TypeOrder.ObjectValue) {
+        // Convert the existing Protobuf MapValue into a map
+        currentValue = new Map<string, Overlay>(
+          Object.entries(currentValue.mapValue!.fields || {})
+        );
+        currentLevel.set(currentSegment, currentValue);
+        currentLevel = currentValue;
+      } else {
+        // Create an empty map to represent the current nesting level
+        currentValue = new Map<string, Overlay>();
+        currentLevel.set(currentSegment, currentValue);
+        currentLevel = currentValue;
+      }
+    }
+
+    currentLevel.set(path.lastSegment(), value);
+  }
+
+  /** Returns an ObjectValue with all mutations applied. */
   build(): ObjectValue {
-    return new ObjectValue(this.internalValue);
+    const mergedResult = this.applyOverlay(
+      FieldPath.EMPTY_PATH,
+      this.overlayMap
+    );
+    if (mergedResult != null) {
+      return new ObjectValue(mergedResult);
+    } else {
+      return this.baseObject;
+    }
+  }
+
+  /**
+   * Applies any overlays from `currentOverlays` that exist at `currentPath`
+   * and returns the merged data at `currentPath` (or null if there were no
+   * changes).
+   *
+   * @param currentPath The path at the current nesting level. Can be set to
+   * FieldValue.EMPTY_PATH to represent the root.
+   * @param currentOverlays The overlays at the current nesting level in the
+   * same format as `overlayMap`.
+   * @return The merged data at `currentPath` or null if no modifications
+   * were applied.
+   */
+  private applyOverlay(
+    currentPath: FieldPath,
+    currentOverlays: Map<string, Overlay>
+  ): api.Value | null {
+    let modified = false;
+
+    const existingValue = this.baseObject.field(currentPath);
+    const resultAtPath =
+      existingValue instanceof ObjectValue
+        ? // If there is already data at the current path, base our
+          // modifications on top of the existing data.
+          { ...existingValue.proto.mapValue!.fields }
+        : {};
+
+    currentOverlays.forEach((value, pathSegment) => {
+      if (value instanceof Map) {
+        const nested = this.applyOverlay(currentPath.child(pathSegment), value);
+        if (nested != null) {
+          resultAtPath[pathSegment] = nested;
+          modified = true;
+        }
+      } else if (value !== null) {
+        resultAtPath[pathSegment] = value;
+        modified = true;
+      } else if (resultAtPath.hasOwnProperty(pathSegment)) {
+        delete resultAtPath[pathSegment];
+        modified = true;
+      }
+    });
+
+    return modified ? { mapValue: { fields: resultAtPath } } : null;
   }
 }
 
 export class ArrayValue extends FieldValue {
   typeOrder = TypeOrder.ArrayValue;
-
-  constructor(readonly internalValue: FieldValue[]) {
-    super();
+  
+  static fromList(values: FieldValue[]) {
+    return new ArrayValue({arrayValue: { values: values.map(v => v.proto)}});
   }
-
-  value(): FieldType[] {
-    return this.internalValue.map(v => v.value());
-  }
-
-  /**
-   * Returns true if the given value is contained in this array.
-   */
-  contains(value: FieldValue): boolean {
-    for (const element of this.internalValue) {
-      if (element.isEqual(value)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  forEach(action: (value: FieldValue) => void): void {
-    this.internalValue.forEach(action);
-  }
-
-  isEqual(other: FieldValue): boolean {
-    if (other instanceof ArrayValue) {
-      if (this.internalValue.length !== other.internalValue.length) {
-        return false;
-      }
-
-      for (let i = 0; i < this.internalValue.length; i++) {
-        if (!this.internalValue[i].isEqual(other.internalValue[i])) {
-          return false;
-        }
-      }
-
-      return true;
-    }
-
-    return false;
-  }
-
-  compareTo(other: FieldValue): number {
-    if (other instanceof ArrayValue) {
-      const minLength = Math.min(
-        this.internalValue.length,
-        other.internalValue.length
-      );
-
-      for (let i = 0; i < minLength; i++) {
-        const cmp = this.internalValue[i].compareTo(other.internalValue[i]);
-
-        if (cmp) {
-          return cmp;
-        }
-      }
-
-      return primitiveComparator(
-        this.internalValue.length,
-        other.internalValue.length
-      );
-    } else {
-      return this.defaultCompareTo(other);
-    }
-  }
-
-  approximateByteSize(): number {
-    return this.internalValue.reduce(
-      (totalSize, value) => totalSize + value.approximateByteSize(),
-      0
-    );
+  
+  getValues(): FieldValue[] {
+    return (this.proto.arrayValue!.values || []).map(v =>  FieldValue.of(v));
   }
 
   toString(): string {
-    const descriptions = this.internalValue.map(v => v.toString());
-    return `[${descriptions.join(',')}]`;
+    return canonicalId(this.proto);
   }
 }

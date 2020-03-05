@@ -26,6 +26,7 @@ import {
   NumberValue,
   ServerTimestampValue
 } from './field_value';
+import {normalizeNumber} from "./proto_values";
 
 /** Represents a transform within a TransformMutation. */
 export interface TransformOperation {
@@ -76,7 +77,7 @@ export class ServerTimestampTransform implements TransformOperation {
     previousValue: FieldValue | null,
     localWriteTime: Timestamp
   ): FieldValue {
-    return new ServerTimestampValue(localWriteTime!, previousValue);
+    return ServerTimestampValue.valueOf(localWriteTime!, previousValue);
   }
 
   applyToRemoteDocument(
@@ -123,7 +124,7 @@ export class ArrayUnionTransformOperation implements TransformOperation {
         result.push(toUnion);
       }
     }
-    return new ArrayValue(result);
+    return FieldValue.of({arrayValue: {values: result.map(v => v.proto)}});
   }
 
   computeBaseValue(previousValue: FieldValue | null): FieldValue | null {
@@ -164,7 +165,7 @@ export class ArrayRemoveTransformOperation implements TransformOperation {
     for (const toRemove of this.elements) {
       result = result.filter(element => !element.isEqual(toRemove));
     }
-    return new ArrayValue(result);
+    return FieldValue.of({arrayValue: {values: result.map(v => v.proto)}});
   }
 
   computeBaseValue(previousValue: FieldValue | null): FieldValue | null {
@@ -203,11 +204,16 @@ export class NumericIncrementTransformOperation implements TransformOperation {
       baseValue instanceof IntegerValue &&
       this.operand instanceof IntegerValue
     ) {
-      const sum = baseValue.internalValue + this.operand.internalValue;
-      return new IntegerValue(sum);
+      const integerValue = normalizeNumber(baseValue.proto.integerValue!) +normalizeNumber( this.operand.proto.integerValue!);
+      return FieldValue.of({integerValue});
+    } else if (
+      baseValue instanceof IntegerValue
+    ) {
+      const doubleValue = normalizeNumber(baseValue.proto.integerValue!) + normalizeNumber(this.operand.proto.doubleValue!);
+      return FieldValue.of({doubleValue});
     } else {
-      const sum = baseValue.internalValue + this.operand.internalValue;
-      return new DoubleValue(sum);
+      const doubleValue = normalizeNumber(baseValue.proto.doubleValue!) + normalizeNumber(this.operand.proto.doubleValue!);
+      return FieldValue.of({doubleValue});
     }
   }
 
@@ -229,7 +235,7 @@ export class NumericIncrementTransformOperation implements TransformOperation {
   computeBaseValue(previousValue: FieldValue | null): NumberValue {
     return previousValue instanceof NumberValue
       ? previousValue
-      : new IntegerValue(0);
+      : FieldValue.of({integerValue:0}) as NumberValue;
   }
 
   isEqual(other: TransformOperation): boolean {
@@ -242,7 +248,7 @@ export class NumericIncrementTransformOperation implements TransformOperation {
 
 function coercedFieldValuesArray(value: FieldValue | null): FieldValue[] {
   if (value instanceof ArrayValue) {
-    return value.internalValue.slice();
+    return value.getValues();
   } else {
     // coerce to empty array.
     return [];

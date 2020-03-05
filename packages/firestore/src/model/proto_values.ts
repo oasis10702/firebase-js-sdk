@@ -17,7 +17,12 @@
 
 import * as api from '../protos/firestore_proto_api';
 
-import { TypeOrder } from './field_value';
+import {
+  FieldValue,
+  RefValue,
+  ServerTimestampValue,
+  TypeOrder
+} from './field_value';
 import { assert, fail } from '../util/assert';
 import { forEach, keys, size } from '../util/obj';
 import { ByteString } from '../util/byte_string';
@@ -26,6 +31,7 @@ import {
   numericEquals,
   primitiveComparator
 } from '../util/misc';
+import {bound} from "../../test/util/helpers";
 
 // A RegExp matching ISO 8601 UTC timestamps with optional fraction.
 const ISO_TIMESTAMP_REG_EXP = new RegExp(
@@ -58,18 +64,13 @@ export function typeOrder(value: api.Value): TypeOrder {
   } else if ('arrayValue' in value) {
     return TypeOrder.ArrayValue;
   } else if ('mapValue' in value) {
+    if (ServerTimestampValue.isServerTimestamp(value)) {
+      return TypeOrder.TimestampValue;
+    }
     return TypeOrder.ObjectValue;
   } else {
     return fail('Invalid value type: ' + JSON.stringify(value));
   }
-}
-
-/** Returns whether `value` is defined and corresponds to the given type order. */
-export function isType(
-  value: api.Value | null | undefined,
-  expectedTypeOrder: TypeOrder
-): value is api.Value {
-  return !!value && typeOrder(value) === expectedTypeOrder;
 }
 
 /** Tests `left` and `right` for equality based on the backend semantics. */
@@ -107,6 +108,16 @@ export function equals(left: api.Value, right: api.Value): boolean {
 }
 
 function timestampEquals(left: api.Value, right: api.Value): boolean {
+  if (ServerTimestampValue.isServerTimestamp(left)
+    && ServerTimestampValue.isServerTimestamp(right)) {
+    return new ServerTimestampValue(left)
+      .localWriteTime
+      .isEqual(new ServerTimestampValue(right).localWriteTime);
+  } else if (ServerTimestampValue.isServerTimestamp(left)
+    || ServerTimestampValue.isServerTimestamp(right)) {
+    return false;
+  }
+  
   if (
     typeof left.timestampValue === 'string' &&
     typeof right.timestampValue === 'string' &&
@@ -186,7 +197,12 @@ function objectEquals(left: api.Value, right: api.Value): boolean {
       }
     }
   }
-  return true;
+  return true; 
+}
+
+/** Returns true if the Value list contains the specified element. */
+export function contains(haystack: api.Value[] | undefined, needle: api.Value): boolean {
+  return haystack?.find(v => equals(v, needle)) !== undefined;
 }
 
 export function compare(left: api.Value, right: api.Value): number {
@@ -359,8 +375,7 @@ function canonifyValue(value: api.Value): string {
   } else if ('bytesValue' in value) {
     return canonifyByteString(value.bytesValue!);
   } else if ('referenceValue' in value) {
-    // TODO(mrschmidt): Use document key only
-    return value.referenceValue!;
+    return canonifyReference(value.referenceValue!);
   } else if ('geoPointValue' in value) {
     return canonifyGeoPoint(value.geoPointValue!);
   } else if ('arrayValue' in value) {
@@ -383,6 +398,12 @@ function canonifyTimestamp(timestamp: ProtoTimestampValue): string {
 
 function canonifyGeoPoint(geoPoint: api.LatLng): string {
   return `geo(${geoPoint.latitude},${geoPoint.longitude})`;
+}
+
+function canonifyReference(referenceValue: string): string {
+  const fieldValue = FieldValue.of({referenceValue});
+  assert(fieldValue instanceof RefValue, "Value should be a RefValue");
+  return fieldValue.key.toString();
 }
 
 function canonifyMap(mapValue: api.MapValue): string {

@@ -417,7 +417,7 @@ export class UserDataReader {
         const parsedValue = this.parseData(value, childContext);
         if (parsedValue != null) {
           fieldMaskPaths = fieldMaskPaths.add(path);
-          updateData.set(path, parsedValue);
+          updateData.set(path, parsedValue.proto);
         }
       }
     });
@@ -477,7 +477,7 @@ export class UserDataReader {
         const parsedValue = this.parseData(value, childContext);
         if (parsedValue != null) {
           fieldMaskPaths = fieldMaskPaths.add(path);
-          updateData.set(path, parsedValue);
+          updateData.set(path, parsedValue.proto);
         }
       }
     }
@@ -576,7 +576,7 @@ export class UserDataReader {
   }
 
   private parseObject(obj: Dict<unknown>, context: ParseContext): FieldValue {
-    let result = new SortedMap<string, FieldValue>(primitiveComparator);
+    let builder = ObjectValue.newBuilder();
 
     if (isEmpty(obj)) {
       // If we encounter an empty object, we explicitly add it to the update
@@ -591,12 +591,12 @@ export class UserDataReader {
           context.childContextForField(key)
         );
         if (parsedValue != null) {
-          result = result.insert(key, parsedValue);
+          builder.set(new FieldPath([key]), parsedValue.proto);
         }
       });
     }
 
-    return new ObjectValue(result);
+    return builder.build();
   }
 
   private parseArray(array: unknown[], context: ParseContext): FieldValue {
@@ -615,7 +615,7 @@ export class UserDataReader {
       result.push(parsedEntry);
       entryIndex++;
     }
-    return new ArrayValue(result);
+    return FieldValue.of({arrayValue: { values: result.map(v => v.proto) } } );
   }
 
   /**
@@ -706,32 +706,27 @@ export class UserDataReader {
       return NullValue.INSTANCE;
     } else if (typeof value === 'number') {
       if (typeUtils.isSafeInteger(value)) {
-        return new IntegerValue(value);
+        return FieldValue.of({integerValue:value});
       } else {
-        return new DoubleValue(value);
+        return FieldValue.of({doubleValue:value});
       }
     } else if (typeof value === 'boolean') {
-      return BooleanValue.of(value);
+      return BooleanValue.valueOf(value);
     } else if (typeof value === 'string') {
-      return new StringValue(value);
+      return FieldValue.of({stringValue: value});
     } else if (value instanceof Date) {
-      return new TimestampValue(Timestamp.fromDate(value));
+      return this.parseTimestamp(Timestamp.fromDate(value));
     } else if (value instanceof Timestamp) {
       // Firestore backend truncates precision down to microseconds. To ensure
       // offline mode works the same with regards to truncation, perform the
       // truncation immediately without waiting for the backend to do that.
-      return new TimestampValue(
-        new Timestamp(
-          value.seconds,
-          Math.floor(value.nanoseconds / 1000) * 1000
-        )
-      );
+      return this.parseTimestamp(value);
     } else if (value instanceof GeoPoint) {
-      return new GeoPointValue(value);
+      return FieldValue.of({geoPointValue: { latitude: value.latitude, longitude: value.longitude }});
     } else if (value instanceof Blob) {
-      return new BlobValue(value._byteString);
+      return FieldValue.of({bytesValue: value.toBase64()});
     } else if (value instanceof DocumentKeyReference) {
-      return new RefValue(value.databaseId, value.key);
+      return RefValue.valueOf(value.databaseId, value.key);
     } else {
       throw context.createError(
         `Unsupported field value: ${valueDescription(value)}`
@@ -739,7 +734,15 @@ export class UserDataReader {
     }
   }
 
-  private parseArrayTransformElements(
+  private parseTimestamp( timestamp:Timestamp) : FieldValue {
+  // Firestore backend truncates precision down to microseconds. To ensure
+  // offline mode works the same with regards to truncation, perform the
+  // truncation immediately without waiting for the backend to do that.
+  const truncatedNanoseconds = Math.floor(timestamp.nanoseconds / 1000) * 1000;
+  return FieldValue.of({timestampValue: {seconds: timestamp.seconds, nanos: truncatedNanoseconds}});
+}
+
+private parseArrayTransformElements(
     methodName: string,
     elements: unknown[]
   ): FieldValue[] {

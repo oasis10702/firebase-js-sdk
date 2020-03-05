@@ -1251,7 +1251,7 @@ function genericLocalStoreTests(
         .toContain(doc('foo/bar', 1, { sum: 1 }, { hasLocalMutations: true }))
         .afterAcknowledgingMutation({
           documentVersion: 2,
-          transformResult: new IntegerValue(1)
+          transformResult: FieldValue.of({integerValue:1})
         })
         .toReturnChanged(
           doc('foo/bar', 2, { sum: 1 }, { hasCommittedMutations: true })
@@ -1314,7 +1314,7 @@ function genericLocalStoreTests(
         .toContain(doc('foo/bar', 2, { sum: 3 }, { hasLocalMutations: true }))
         .afterAcknowledgingMutation({
           documentVersion: 3,
-          transformResult: new IntegerValue(1)
+          transformResult: FieldValue.of({integerValue:1})
         })
         .toReturnChanged(
           doc('foo/bar', 3, { sum: 3 }, { hasLocalMutations: true })
@@ -1322,7 +1322,7 @@ function genericLocalStoreTests(
         .toContain(doc('foo/bar', 3, { sum: 3 }, { hasLocalMutations: true }))
         .afterAcknowledgingMutation({
           documentVersion: 4,
-          transformResult: new IntegerValue(1339)
+          transformResult: FieldValue.of({integerValue:1339})
         })
         .toReturnChanged(
           doc('foo/bar', 4, { sum: 1339 }, { hasCommittedMutations: true })

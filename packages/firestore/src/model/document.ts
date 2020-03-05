@@ -76,10 +76,6 @@ export class Document extends MaybeDocument {
     return this.objectValue;
   }
 
-  value(): JsonObject<unknown> {
-    return this.data().value();
-  }
-
   isEqual(other: MaybeDocument | null | undefined): boolean {
     return (
       other instanceof Document &&
