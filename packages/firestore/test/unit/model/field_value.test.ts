@@ -40,7 +40,7 @@ import {
   field,
   key,
   mask,
-  ref
+  ref, wrap
 } from '../../util/helpers';
 
 describe('FieldValue', () => {
@@ -59,7 +59,7 @@ describe('FieldValue', () => {
     const values = primitiveValues.map(v => wrap(v));
 
     values.forEach(v => {
-      expect(v.typeOrder).to.equal(TypeOrder.NumberValue);
+      expect(typeOrder(v)).to.equal(TypeOrder.NumberValue);
     });
 
     for (let i = 0; i < primitiveValues.length; i++) {
@@ -82,7 +82,7 @@ describe('FieldValue', () => {
     const values = primitiveValues.map(v => wrap(v));
 
     values.forEach(v => {
-      expect(v.typeOrder).to.equal(TypeOrder.NumberValue);
+      expect(typeOrder(v)).to.equal(TypeOrder.NumberValue);
     });
 
     for (let i = 0; i < primitiveValues.length; i++) {
@@ -99,7 +99,7 @@ describe('FieldValue', () => {
   it('can parse null', () => {
     const nullValue = wrap(null);
 
-    expect(nullValue.typeOrder).to.equal(TypeOrder.NullValue);
+    expect(typeOrder(nullValue)).to.equal(TypeOrder.NullValue);
     expect(nullValue.value()).to.equal(null);
   });
 
@@ -107,8 +107,8 @@ describe('FieldValue', () => {
     const trueValue = wrap(true);
     const falseValue = wrap(false);
 
-    expect(trueValue.typeOrder).to.equal(TypeOrder.BooleanValue);
-    expect(trueValue.typeOrder).to.equal(TypeOrder.BooleanValue);
+    expect(typeOrder(trueValue)).to.equal(TypeOrder.BooleanValue);
+    expect(typeOrder(falseValue)).to.equal(TypeOrder.BooleanValue);
 
     expect(trueValue.value()).to.equal(true);
     expect(falseValue.value()).to.equal(false);
@@ -118,8 +118,8 @@ describe('FieldValue', () => {
     const dateValue1 = wrap(date1);
     const dateValue2 = wrap(date2);
 
-    expect(dateValue1.typeOrder).to.equal(TypeOrder.TimestampValue);
-    expect(dateValue2.typeOrder).to.equal(TypeOrder.TimestampValue);
+    expect(typeOrder(dateValue1)).to.equal(TypeOrder.TimestampValue);
+    expect(typeOrder(dateValue2)).to.equal(TypeOrder.TimestampValue);
 
     expect(dateValue1.value()).to.deep.equal(Timestamp.fromDate(date1));
     expect(dateValue2.value()).to.deep.equal(Timestamp.fromDate(date2));
@@ -131,8 +131,8 @@ describe('FieldValue', () => {
     const value1 = wrap(latLong1);
     const value2 = wrap(latLong2);
 
-    expect(value1.typeOrder).to.equal(TypeOrder.GeoPointValue);
-    expect(value2.typeOrder).to.equal(TypeOrder.GeoPointValue);
+    expect(typeOrder(value1)).to.equal(TypeOrder.GeoPointValue);
+    expect(typeOrder(value2)).to.equal(TypeOrder.GeoPointValue);
 
     expect((value1.value() as GeoPoint).latitude).to.equal(1.23);
     expect((value1.value() as GeoPoint).longitude).to.equal(4.56);
@@ -142,8 +142,8 @@ describe('FieldValue', () => {
 
   it('can parse bytes', () => {
     const bytesValue = wrap(blob(0, 1, 2));
-
-    expect(bytesValue.typeOrder).to.equal(TypeOrder.BlobValue);
+0
+    expect(typeOrder(bytesValue).to.equal(TypeOrder.BlobValue);
     expect((bytesValue.value() as ByteString).toUint8Array()).to.deep.equal(
       new Uint8Array([0, 1, 2])
     );
@@ -152,7 +152,7 @@ describe('FieldValue', () => {
   it('can parse simple objects', () => {
     const objValue = wrap({ a: 'foo', b: 1, c: true, d: null });
 
-    expect(objValue.typeOrder).to.equal(TypeOrder.ObjectValue);
+    expect(objValue).to.equal(TypeOrder.ObjectValue);
     expect(objValue.value()).to.deep.equal({
       a: 'foo',
       b: 1,
@@ -164,7 +164,7 @@ describe('FieldValue', () => {
   it('can parse nested objects', () => {
     const objValue = wrap({ foo: { bar: 1, baz: [1, 2, { a: 'b' }] } });
 
-    expect(objValue.typeOrder).to.equal(TypeOrder.ObjectValue);
+    expect(typeOrder(objValue)).to.equal(TypeOrder.ObjectValue);
     expect(objValue.value()).to.deep.equal({
       foo: { bar: 1, baz: [1, 2, { a: 'b' }] }
     });
@@ -173,7 +173,7 @@ describe('FieldValue', () => {
   it('can parse empty objects', () => {
     const objValue = wrap({ foo: {} });
 
-    expect(objValue.typeOrder).to.equal(TypeOrder.ObjectValue);
+    expect(typeOrder(objValue).to.equal(TypeOrder.ObjectValue);
     expect(objValue.value()).to.deep.equal({ foo: {} });
   });
 
