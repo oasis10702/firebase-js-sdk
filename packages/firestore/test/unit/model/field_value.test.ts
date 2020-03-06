@@ -24,7 +24,7 @@ import { typeOrder } from '../../../src/model/values';
 import * as typeUtils from '../../../src/util/types';
 import { blob, field, mask, wrap, wrapObject } from '../../util/helpers';
 
-describe('FieldValue', () => {
+describe.only('FieldValue', () => {
   const date1 = new Date(2016, 4, 2, 1, 5);
   const date2 = new Date(2016, 5, 20, 10, 20, 30);
 
@@ -239,62 +239,38 @@ describe('FieldValue', () => {
     expect(objValue.field(field('bar'))).to.be.null;
     expect(objValue.field(field('bar.a'))).to.be.null;
 
-    expect(objValue.field(field('foo'))).to.deep.equal({
-      'mapValue': {
-        'fields': {
-          'a': {
-            'integerValue': 1
-          },
-          'b': {
-            'booleanValue': true
-          },
-          'c': {
-            'stringValue': 'string'
-          }
-        }
-      }
-    });
-    expect(objValue.field(field('foo.a'))).to.deep.equal({ integerValue: 1 });
-    expect(objValue.field(field('foo.b'))).to.deep.equal({
-      booleanValue: true
-    });
-    expect(objValue.field(field('foo.c'))).to.deep.equal({
-      stringValue: 'string'
-    });
+    expect(objValue.field(field('foo'))!).to.deep.equal(
+      wrap({
+        a: 1,
+        b: true,
+        c: 'string'
+      })
+    );
+    expect(objValue.field(field('foo.a'))).to.deep.equal(wrap(1));
+    expect(objValue.field(field('foo.b'))).to.deep.equal(wrap(true));
+    expect(objValue.field(field('foo.c'))).to.deep.equal(wrap('string'));
   });
 
   it('can overwrite existing fields', () => {
     const objValue = wrapObject({ foo: 'foo-value' });
 
     const objValue2 = setField(objValue, 'foo', wrap('new-foo-value'));
-    expect(objValue.isEqual(wrapObject({ foo: 'foo-value' }))).is.true; // unmodified original
-    expect(objValue2.proto).to.deep.equal({
-      'mapValue': {
-        'fields': {
-          'foo': {
-            'stringValue': 'new-foo-value'
-          }
-        }
-      }
-    });
+    assertObjectEquals(objValue, {
+      foo: 'foo-value'
+    }); // unmodified original
+    assertObjectEquals(objValue2, { foo: 'new-foo-value' });
   });
 
   it('can add new fields', () => {
     const objValue = wrapObject({ foo: 'foo-value' });
 
     const objValue2 = setField(objValue, 'bar', wrap('bar-value'));
-    expect(objValue.isEqual(wrapObject({ foo: 'foo-value' }))).is.true; // unmodified original
-    expect(objValue2.proto).to.deep.equal({
-      'mapValue': {
-        'fields': {
-          'bar': {
-            'stringValue': 'bar-value'
-          },
-          'foo': {
-            'stringValue': 'foo-value'
-          }
-        }
-      }
+    assertObjectEquals(objValue, {
+      foo: 'foo-value'
+    }); // unmodified original
+    assertObjectEquals(objValue2, {
+      foo: 'foo-value',
+      bar: 'bar-value'
     });
   });
 
@@ -310,45 +286,19 @@ describe('FieldValue', () => {
       .set(field('c'), wrap('c'))
       .build();
 
-    expect(objValue.proto).to.deep.equal({
-      'mapValue': {
-        'fields': {
-          'a': {
-            'stringValue': 'a'
-          },
-          'b': {
-            'stringValue': 'b'
-          },
-          'c': {
-            'stringValue': 'c'
-          }
-        }
-      }
-    });
+    assertObjectEquals(objValue, { a: 'a', b: 'b', c: 'c' });
   });
 
   it('can implicitly create objects', () => {
     const objValue = wrapObject({ foo: 'foo-value' });
 
     const objValue2 = setField(objValue, 'a.b', wrap('b-value'));
-    expect(objValue.isEqual(wrapObject({ foo: 'foo-value' }))).is.true; // unmodified original
-    expect(objValue2.proto).to.deep.equal({
-      'mapValue': {
-        'fields': {
-          'a': {
-            'mapValue': {
-              'fields': {
-                'b': {
-                  'stringValue': 'b-value'
-                }
-              }
-            }
-          },
-          'foo': {
-            'stringValue': 'foo-value'
-          }
-        }
-      }
+    assertObjectEquals(objValue, {
+      foo: 'foo-value'
+    }); // unmodified original
+    assertObjectEquals(objValue2, {
+      foo: 'foo-value',
+      a: { b: 'b-value' }
     });
   });
 
@@ -356,47 +306,21 @@ describe('FieldValue', () => {
     const objValue = wrapObject({ foo: 'foo-value' });
 
     const objValue2 = setField(objValue, 'foo.bar', wrap('bar-value'));
-    assertObjectEquals(objValue, { foo: 'foo-value' });
-    expect(objValue.isEqual(wrapObject({ foo: 'foo-value' }))).is.true; // unmodified original
-    expect(objValue2.proto).to.deep.equal({
-      'mapValue': {
-        'fields': {
-          'foo': {
-            'mapValue': {
-              'fields': {
-                'bar': {
-                  'stringValue': 'bar-value'
-                }
-              }
-            }
-          }
-        }
-      }
-    });
+    assertObjectEquals(objValue, {
+      foo: 'foo-value'
+    }); // unmodified original
+    assertObjectEquals(objValue2, { foo: { bar: 'bar-value' } });
   });
 
   it('can add to nested objects', () => {
     const objValue = wrapObject({ foo: { bar: 'bar-value' } });
 
     const objValue2 = setField(objValue, 'foo.baz', wrap('baz-value'));
-    expect(objValue.isEqual(wrapObject({ foo: { bar: 'bar-value' } }))).is.true; // unmodified original
-    expect(objValue2.proto).to.deep.equal({
-      'mapValue': {
-        'fields': {
-          'foo': {
-            'mapValue': {
-              'fields': {
-                'bar': {
-                  'stringValue': 'bar-value'
-                },
-                'baz': {
-                  'stringValue': 'baz-value'
-                }
-              }
-            }
-          }
-        }
-      }
+    assertObjectEquals(objValue, {
+      foo: { bar: 'bar-value' }
+    }); // unmodified original
+    assertObjectEquals(objValue2, {
+      foo: { bar: 'bar-value', baz: 'baz-value' }
     });
   });
 
@@ -404,27 +328,11 @@ describe('FieldValue', () => {
     const objValue = wrapObject({ foo: 'foo-value', bar: 'bar-value' });
 
     const objValue2 = deleteField(objValue, 'foo');
-    expect(objValue.proto).to.deep.equal({
-      'mapValue': {
-        'fields': {
-          'bar': {
-            'stringValue': 'bar-value'
-          },
-          'foo': {
-            'stringValue': 'foo-value'
-          }
-        }
-      }
+    assertObjectEquals(objValue, {
+      foo: 'foo-value',
+      bar: 'bar-value'
     }); // unmodified original
-    expect(objValue2.proto).to.deep.equal({
-      'mapValue': {
-        'fields': {
-          'bar': {
-            'stringValue': 'bar-value'
-          }
-        }
-      }
-    });
+    assertObjectEquals(objValue2, { bar: 'bar-value' });
   });
 
   it('can delete nested keys', () => {
@@ -433,39 +341,10 @@ describe('FieldValue', () => {
     });
 
     const objValue2 = deleteField(objValue, 'foo.bar');
-    expect(objValue.proto).to.deep.equal({
-      'mapValue': {
-        'fields': {
-          'foo': {
-            'mapValue': {
-              'fields': {
-                'bar': {
-                  'stringValue': 'bar-value'
-                },
-                'baz': {
-                  'stringValue': 'baz-value'
-                }
-              }
-            }
-          }
-        }
-      }
+    assertObjectEquals(objValue, {
+      foo: { bar: 'bar-value', baz: 'baz-value' }
     }); // unmodified original
-    expect(objValue2.proto).to.deep.equal({
-      'mapValue': {
-        'fields': {
-          'foo': {
-            'mapValue': {
-              'fields': {
-                'baz': {
-                  'stringValue': 'baz-value'
-                }
-              }
-            }
-          }
-        }
-      }
-    });
+    assertObjectEquals(objValue2, { foo: { baz: 'baz-value' } });
   });
 
   it('can delete added keys', () => {
@@ -477,69 +356,30 @@ describe('FieldValue', () => {
       .delete(field('a'))
       .build();
 
-    expect(objValue.proto).to.deep.equal({ mapValue: {} });
+    assertObjectEquals(objValue, {});
   });
 
   it('can delete, resulting in empty object', () => {
     const objValue = wrapObject({ foo: { bar: 'bar-value' } });
 
     const objValue2 = deleteField(objValue, 'foo.bar');
-    expect(objValue.proto).to.deep.equal({
-      'mapValue': {
-        'fields': {
-          'foo': {
-            'mapValue': {
-              'fields': {
-                'bar': {
-                  'stringValue': 'bar-value'
-                }
-              }
-            }
-          }
-        }
-      }
+    assertObjectEquals(objValue, {
+      foo: { bar: 'bar-value' }
     }); // unmodified original
-    expect(objValue2.proto).to.deep.equal({
-      'mapValue': {
-        'fields': {
-          'foo': {
-            'mapValue': {
-              'fields': {}
-            }
-          }
-        }
-      }
-    });
+    assertObjectEquals(objValue2, { foo: {} });
   });
 
   it('will not delete nested keys on primitive values', () => {
     const objValue = wrapObject({ foo: { bar: 'bar-value' }, a: 1 });
 
-    const expected = {
-      'mapValue': {
-        'fields': {
-          'a': {
-            'integerValue': 1
-          },
-          'foo': {
-            'mapValue': {
-              'fields': {
-                'bar': {
-                  'stringValue': 'bar-value'
-                }
-              }
-            }
-          }
-        }
-      }
-    };
+    const expected = { foo: { bar: 'bar-value' }, a: 1 };
     const objValue2 = deleteField(objValue, 'foo.baz');
     const objValue3 = deleteField(objValue, 'foo.bar.baz');
     const objValue4 = deleteField(objValue, 'a.b');
-    expect(objValue.proto).to.deep.equal(expected);
-    expect(objValue2.proto).to.deep.equal(expected);
-    expect(objValue3.proto).to.deep.equal(expected);
-    expect(objValue4.proto).to.deep.equal(expected);
+    assertObjectEquals(objValue, expected);
+    assertObjectEquals(objValue2, expected);
+    assertObjectEquals(objValue3, expected);
+    assertObjectEquals(objValue4, expected);
   });
 
   it('can delete multiple fields', () => {
@@ -555,11 +395,7 @@ describe('FieldValue', () => {
       .delete(field('c'))
       .build();
 
-    expect(objValue.proto).to.deep.equal({
-      'mapValue': {
-        'fields': {}
-      }
-    });
+    assertObjectEquals(objValue, {});
   });
 
   it('provides field mask', () => {
@@ -600,8 +436,11 @@ describe('FieldValue', () => {
       .delete(field(fieldPath))
       .build();
   }
-  
-  function assertObjectEquals(objValue: ObjectValue, data: {foo: string}) {
+
+  function assertObjectEquals(
+    objValue: ObjectValue,
+    data: { [k: string]: unknown }
+  ) {
     expect(objValue.proto).to.deep.equal(wrap(data));
   }
 });

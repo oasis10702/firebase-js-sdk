@@ -22,7 +22,7 @@ import { SortedSet } from '../util/sorted_set';
 import * as api from '../protos/firestore_proto_api';
 import { equals, estimateByteSize, isMapValue, typeOrder } from './values';
 import { Blob } from '../api/blob';
-import { forEach } from '../util/obj';
+import { forEach, size } from '../util/obj';
 import { isServerTimestamp } from './server_timestamps';
 
 /**
@@ -297,6 +297,12 @@ export class ObjectValueBuilder {
       }
     });
 
-    return modified ? { mapValue: { fields: resultAtPath } } : null;
+    if (!modified) {
+      return null;
+    }
+
+    return size(resultAtPath) > 0
+      ? { mapValue: { fields: resultAtPath } }
+      : { mapValue: {} };
   }
 }
