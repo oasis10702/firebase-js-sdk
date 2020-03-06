@@ -356,6 +356,7 @@ describe('FieldValue', () => {
     const objValue = wrapObject({ foo: 'foo-value' });
 
     const objValue2 = setField(objValue, 'foo.bar', wrap('bar-value'));
+    assertObjectEquals(objValue, { foo: 'foo-value' });
     expect(objValue.isEqual(wrapObject({ foo: 'foo-value' }))).is.true; // unmodified original
     expect(objValue2.proto).to.deep.equal({
       'mapValue': {
@@ -598,5 +599,9 @@ describe('FieldValue', () => {
       .toBuilder()
       .delete(field(fieldPath))
       .build();
+  }
+  
+  function assertObjectEquals(objValue: ObjectValue, data: {foo: string}) {
+    expect(objValue.proto).to.deep.equal(wrap(data));
   }
 });
