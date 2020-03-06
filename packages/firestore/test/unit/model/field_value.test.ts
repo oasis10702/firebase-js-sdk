@@ -24,7 +24,7 @@ import { typeOrder } from '../../../src/model/values';
 import * as typeUtils from '../../../src/util/types';
 import { blob, field, mask, wrap, wrapObject } from '../../util/helpers';
 
-describe.only('FieldValue', () => {
+describe('FieldValue', () => {
   const date1 = new Date(2016, 4, 2, 1, 5);
   const date2 = new Date(2016, 5, 20, 10, 20, 30);
 
@@ -441,6 +441,6 @@ describe.only('FieldValue', () => {
     objValue: ObjectValue,
     data: { [k: string]: unknown }
   ) {
-    expect(objValue.proto).to.deep.equal(wrap(data));
+    expect(objValue.isEqual(wrapObject(data)));
   }
 });

@@ -22,11 +22,13 @@ import { assert } from '../util/assert';
 import {
   equals,
   isArray,
+  isDouble,
   isInteger,
   isNumber,
   normalizeNumber
 } from './values';
 import { valueOf } from './server_timestamps';
+import { isSafeInteger } from '../util/types';
 
 /** Represents a transform within a TransformMutation. */
 export interface TransformOperation {
@@ -201,27 +203,26 @@ export class NumericIncrementTransformOperation implements TransformOperation {
     previousValue: api.Value | null,
     localWriteTime: Timestamp
   ): api.Value {
-    const baseValue = this.computeBaseValue(previousValue);
+    const baseValue = this.asNumber(this.computeBaseValue(previousValue));
     // PORTING NOTE: Since JavaScript's integer arithmetic is limited to 53 bit
     // precision and resolves overflows by reducing precision, we do not
     // manually cap overflows at 2^63.
 
     // Return an integer value iff the previous value and the operand is an
     // integer.
-    if (isInteger(baseValue) && isInteger(this.operand)) {
-      const integerValue =
-        normalizeNumber(baseValue.integerValue!) +
-        normalizeNumber(this.operand.integerValue!);
+    if (isSafeInteger(baseValue) && isInteger(this.operand)) {
+      const integerValue = baseValue + this.asNumber(this.operand);
       return { integerValue };
-    } else if (isInteger(baseValue)) {
-      const doubleValue =
-        normalizeNumber(baseValue.integerValue!) +
-        normalizeNumber(this.operand.doubleValue!);
-      return { doubleValue };
     } else {
-      const doubleValue =
-        normalizeNumber(baseValue.doubleValue!) +
-        normalizeNumber(this.operand.doubleValue!);
+      const doubleValue = baseValue + this.asNumber(this.operand);
+
+      if (isNaN(doubleValue)) {
+        return { doubleValue: 'NaN' };
+      } else if (doubleValue === Infinity) {
+        return { doubleValue: 'Infinity' };
+      } else if (doubleValue === -Infinity) {
+        return { doubleValue: '-Infinity' };
+      }
       return { doubleValue };
     }
   }
@@ -239,7 +240,7 @@ export class NumericIncrementTransformOperation implements TransformOperation {
 
   /**
    * Inspects the provided value, returning the provided value if it is already
-   * a NumberValue, otherwise returning a coerced IntegerValue of 0.
+   * a NumberValue, otherwise returning a coerced value 0.
    */
   computeBaseValue(previousValue: api.Value | null): api.Value {
     return isNumber(previousValue) ? previousValue! : { integerValue: 0 };
@@ -250,6 +251,14 @@ export class NumericIncrementTransformOperation implements TransformOperation {
       other instanceof NumericIncrementTransformOperation &&
       equals(this.operand, other.operand)
     );
+  }
+
+  private asNumber(value: api.Value): number {
+    if (isDouble(value)) {
+      return normalizeNumber(value.doubleValue);
+    } else {
+      return normalizeNumber(value.integerValue);
+    }
   }
 }
 

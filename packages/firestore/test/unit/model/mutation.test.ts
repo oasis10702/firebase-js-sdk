@@ -381,7 +381,12 @@ describe('Mutation', () => {
     });
 
     const mutationResult = new MutationResult(version(1), [
-      { timestampValue: { seconds: 1, nanos: 1 } }
+      {
+        timestampValue: {
+          seconds: timestamp.seconds,
+          nanos: timestamp.nanoseconds
+        }
+      }
     ]);
     const transformedDoc = transform.applyToRemoteDocument(
       baseDoc,
@@ -689,6 +694,6 @@ describe('Mutation', () => {
     );
 
     expect(mutatedDoc).to.be.an.instanceof(Document);
-    expect((mutatedDoc as Document).field(field('sum'))).to.deep.equal(2);
+    expect((mutatedDoc as Document).field(field('sum'))).to.deep.equal(wrap(2));
   });
 });

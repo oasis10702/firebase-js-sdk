@@ -297,12 +297,6 @@ export class ObjectValueBuilder {
       }
     });
 
-    if (!modified) {
-      return null;
-    }
-
-    return size(resultAtPath) > 0
-      ? { mapValue: { fields: resultAtPath } }
-      : { mapValue: {} };
+    return modified ? { mapValue: { fields: resultAtPath } } : null;
   }
 }

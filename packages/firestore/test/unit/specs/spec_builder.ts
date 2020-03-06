@@ -55,6 +55,15 @@ import {
   SpecWriteFailure
 } from './spec_test_runner';
 import { PlatformSupport } from '../../../src/platform/platform';
+import { UserDataWriter } from '../../../src/api/user_data_writer';
+
+// TODO(mrschmidt): Passing in `null` only works because the spec tests don't
+// use DocumentReferences. We should provide an actual test instance.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const userDataWriter = new UserDataWriter(
+  null as any,
+  /* timestampsInSnapshots= */ false
+);
 
 // These types are used in a protected API by SpecBuilder and need to be
 // exported.
@@ -886,7 +895,7 @@ export class SpecBuilder {
           return [
             filter.field.canonicalString(),
             filter.op.name,
-            filter.value // TODO(mrschmidt)
+            userDataWriter.convertValue(filter.value)
           ] as SpecQueryFilter;
         } else {
           return fail('Unknown filter: ' + filter);
@@ -909,7 +918,9 @@ export class SpecBuilder {
       return {
         key: SpecBuilder.keyToSpec(doc.key),
         version: doc.version.toMicroseconds(),
-        value: null, // TODO(mrschmidt)
+        value: userDataWriter.convertValue(doc.data().proto) as JsonObject<
+          unknown
+        >,
         options: {
           hasLocalMutations: doc.hasLocalMutations,
           hasCommittedMutations: doc.hasCommittedMutations

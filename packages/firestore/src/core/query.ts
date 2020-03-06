@@ -622,7 +622,9 @@ export class FieldFilter extends Filter {
     // the same description, such as the int 3 and the string "3". So we should
     // add the types in here somehow, too.
     return (
-      this.field.canonicalString() + this.op.toString() + this.value.toString()
+      this.field.canonicalString() +
+      this.op.toString() +
+      canonicalId(this.value)
     );
   }
 
@@ -761,11 +763,11 @@ export class Bound {
 
   canonicalId(): string {
     // TODO(b/29183165): Make this collision robust.
-    let canonicalId = this.before ? 'b:' : 'a:';
+    let id = this.before ? 'b:' : 'a:';
     for (const component of this.position) {
-      canonicalId += component.toString();
+      id += canonicalId(component);
     }
-    return canonicalId;
+    return id;
   }
 
   /**

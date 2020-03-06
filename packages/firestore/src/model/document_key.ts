@@ -76,4 +76,17 @@ export class DocumentKey {
   static fromPathString(path: string): DocumentKey {
     return new DocumentKey(ResourcePath.fromString(path));
   }
+
+  /** Returns a DocumentKey from a fully qualified resource name. */
+  static fromName(referenceValue: string) {
+    const resourceName = ResourcePath.fromString(referenceValue);
+    assert(
+      resourceName.length > 4 &&
+        resourceName.get(0) == 'projects' &&
+        resourceName.get(2) === 'databases' &&
+        resourceName.get(4) === 'documents',
+      'tried to deserialize invalid key ' + resourceName.toString()
+    );
+    return resourceName.popFirst(5).toString();
+  }
 }

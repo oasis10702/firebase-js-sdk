@@ -29,6 +29,7 @@ import {
 import { DatabaseId } from '../core/database_info';
 import { DocumentKey } from './document_key';
 import { getLocalWriteTime, isServerTimestamp } from './server_timestamps';
+import { ResourcePath } from './path';
 
 // A RegExp matching ISO 8601 UTC timestamps with optional fraction.
 const ISO_TIMESTAMP_REG_EXP = new RegExp(
@@ -214,7 +215,24 @@ export function compare(left: api.Value, right: api.Value): number {
     case TypeOrder.NumberValue:
       return compareNumbers(left, right);
     case TypeOrder.TimestampValue:
-      return compareTimestamps(left.timestampValue!, right.timestampValue!);
+      if (isServerTimestamp(left)) {
+        if (isServerTimestamp(right)) {
+          return compareTimestamps(
+            getLocalWriteTime(left),
+            getLocalWriteTime(right)
+          );
+        } else {
+          // Server timestamps come after all concrete timestamps.
+          return 1;
+        }
+      } else {
+        if (isServerTimestamp(right)) {
+          // Server timestamps come after all concrete timestamps.
+          return -1;
+        } else {
+          return compareTimestamps(left.timestampValue!, right.timestampValue!);
+        }
+      }
     case TypeOrder.StringValue:
       return primitiveComparator(left.stringValue!, right.stringValue!);
     case TypeOrder.BlobValue:
@@ -394,7 +412,7 @@ function canonifyGeoPoint(geoPoint: api.LatLng): string {
 }
 
 function canonifyReference(referenceValue: string): string {
-  return DocumentKey.fromPathString(referenceValue).toString();
+  return DocumentKey.fromName(referenceValue).toString();
 }
 
 function canonifyMap(mapValue: api.MapValue): string {

@@ -358,11 +358,13 @@ describe('FieldValue', () => {
     expect(canonicalId(wrap(false))).to.equal('false');
     expect(canonicalId(wrap(1))).to.equal('1');
     expect(canonicalId(wrap(1.1))).to.equal('1.1');
-    expect(canonicalId(wrap(new Timestamp(30, 60)))).to.equal('time(30,60)');
+    expect(canonicalId(wrap(new Timestamp(30, 1000)))).to.equal(
+      'time(30,1000)'
+    );
     expect(canonicalId(wrap('a'))).to.equal('a');
     expect(canonicalId(wrap(blob(1, 2, 3)))).to.equal('AQID');
     expect(canonicalId(refValue(dbId('p1', 'd1'), key('c1/doc1')))).to.equal(
-      'projects/p1/databases/d1/documents/c1/doc1'
+      'c1/doc1'
     );
     expect(canonicalId(wrap(new GeoPoint(30, 60)))).to.equal('geo(30,60)');
     expect(canonicalId(wrap([1, 2, 3]))).to.equal('[1,2,3]');
