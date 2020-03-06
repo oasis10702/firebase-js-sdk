@@ -267,15 +267,7 @@ describe('FieldValue', () => {
     const objValue = wrapObject({ foo: 'foo-value' });
 
     const objValue2 = setField(objValue, 'foo', wrap('new-foo-value'));
-    expect(objValue.proto).to.deep.equal({
-      'mapValue': {
-        'fields': {
-          'foo': {
-            'stringValue': 'foo-value'
-          }
-        }
-      }
-    }); // unmodified original
+    expect(objValue.isEqual(wrapObject({ foo: 'foo-value' }))).is.true; // unmodified original
     expect(objValue2.proto).to.deep.equal({
       'mapValue': {
         'fields': {
@@ -291,15 +283,7 @@ describe('FieldValue', () => {
     const objValue = wrapObject({ foo: 'foo-value' });
 
     const objValue2 = setField(objValue, 'bar', wrap('bar-value'));
-    expect(objValue.proto).to.deep.equal({
-      'mapValue': {
-        'fields': {
-          'foo': {
-            'stringValue': 'foo-value'
-          }
-        }
-      }
-    }); // unmodified original
+    expect(objValue.isEqual(wrapObject({ foo: 'foo-value' }))).is.true; // unmodified original
     expect(objValue2.proto).to.deep.equal({
       'mapValue': {
         'fields': {
@@ -347,15 +331,7 @@ describe('FieldValue', () => {
     const objValue = wrapObject({ foo: 'foo-value' });
 
     const objValue2 = setField(objValue, 'a.b', wrap('b-value'));
-    expect(objValue.proto).to.deep.equal({
-      'mapValue': {
-        'fields': {
-          'foo': {
-            'stringValue': 'foo-value'
-          }
-        }
-      }
-    }); // unmodified original
+    expect(objValue.isEqual(wrapObject({ foo: 'foo-value' }))).is.true; // unmodified original
     expect(objValue2.proto).to.deep.equal({
       'mapValue': {
         'fields': {
@@ -380,15 +356,7 @@ describe('FieldValue', () => {
     const objValue = wrapObject({ foo: 'foo-value' });
 
     const objValue2 = setField(objValue, 'foo.bar', wrap('bar-value'));
-    expect(objValue.proto).to.deep.equal({
-      'mapValue': {
-        'fields': {
-          'foo': {
-            'stringValue': 'foo-value'
-          }
-        }
-      }
-    }); // unmodified original
+    expect(objValue.isEqual(wrapObject({ foo: 'foo-value' }))).is.true; // unmodified original
     expect(objValue2.proto).to.deep.equal({
       'mapValue': {
         'fields': {
@@ -410,21 +378,7 @@ describe('FieldValue', () => {
     const objValue = wrapObject({ foo: { bar: 'bar-value' } });
 
     const objValue2 = setField(objValue, 'foo.baz', wrap('baz-value'));
-    expect(objValue.proto).to.deep.equal({
-      'mapValue': {
-        'fields': {
-          'foo': {
-            'mapValue': {
-              'fields': {
-                'bar': {
-                  'stringValue': 'bar-value'
-                }
-              }
-            }
-          }
-        }
-      }
-    }); // unmodified original
+    expect(objValue.isEqual(wrapObject({ foo: { bar: 'bar-value' } }))).is.true; // unmodified original
     expect(objValue2.proto).to.deep.equal({
       'mapValue': {
         'fields': {
