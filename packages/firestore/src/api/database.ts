@@ -102,7 +102,7 @@ import {
 import { UserDataWriter } from './user_data_writer';
 import { FirebaseAuthInternalName } from '@firebase/auth-interop-types';
 import { Provider } from '@firebase/component';
-import { refValue } from '../model/proto_values';
+import { refValue } from '../model/values';
 import { isServerTimestamp } from '../model/server_timestamps';
 
 // settings() defaults:

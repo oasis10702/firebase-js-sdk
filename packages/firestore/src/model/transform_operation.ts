@@ -25,7 +25,7 @@ import {
   isInteger,
   isNumber,
   normalizeNumber
-} from './proto_values';
+} from './values';
 import { valueOf } from './server_timestamps';
 
 /** Represents a transform within a TransformMutation. */

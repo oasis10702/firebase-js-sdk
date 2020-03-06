@@ -1,7 +1,7 @@
 import * as api from '../protos/firestore_proto_api';
 import { Timestamp } from '../api/timestamp';
 import { assert } from '../util/assert';
-import { normalizeTimestamp } from './proto_values';
+import { normalizeTimestamp } from './values';
 import { TypeOrder } from './field_value';
 
 /**

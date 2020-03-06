@@ -34,7 +34,7 @@ import {
   isNullValue,
   isReferenceValue,
   typeOrder
-} from '../model/proto_values';
+} from '../model/values';
 
 export enum LimitType {
   First = 'F',

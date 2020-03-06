@@ -15,24 +15,16 @@
  * limitations under the License.
  */
 
-import { GeoPoint } from '../api/geo_point';
-import { Timestamp } from '../api/timestamp';
-import { DatabaseId } from '../core/database_info';
-import { assert, fail } from '../util/assert';
-import { DocumentKey } from './document_key';
+import { assert, } from '../util/assert';
 import { FieldMask } from './mutation';
-import { FieldPath, ResourcePath } from './path';
+import { FieldPath } from './path';
 import { SortedSet } from '../util/sorted_set';
 import * as api from '../protos/firestore_proto_api';
 import {
-  canonicalId,
-  compare,
   equals,
   estimateByteSize,
-  normalizeByteString,
-  normalizeTimestamp,
   typeOrder
-} from './proto_values';
+} from './values';
 import { Blob } from '../api/blob';
 import { forEach } from '../util/obj';
 import { isServerTimestamp } from './server_timestamps';

@@ -23,7 +23,7 @@ import { fail } from '../util/assert';
 import { DocumentKey } from './document_key';
 import { ObjectValue } from './field_value';
 import { FieldPath } from './path';
-import { compare } from './proto_values';
+import { compare } from './values';
 
 export interface DocumentOptions {
   hasLocalMutations?: boolean;

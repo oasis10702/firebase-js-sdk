@@ -77,7 +77,7 @@ import {
   normalizeByteString,
   normalizeNumber,
   normalizeTimestamp
-} from '../model/proto_values';
+} from '../model/values';
 import { ObjectValue } from '../model/field_value';
 
 const DIRECTIONS = (() => {

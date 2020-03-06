@@ -34,7 +34,7 @@ import {
   canonicalId, compare,
   equals,
   estimateByteSize, refValue
-} from "../../../src/model/proto_values";
+} from "../../../src/model/values";
 import {primitiveComparator} from "../../../src/util/misc";
 import {valueOf} from "../../../src/model/server_timestamps";
 

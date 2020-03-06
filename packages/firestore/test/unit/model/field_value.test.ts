@@ -28,7 +28,7 @@ import {
   canonicalId,
   estimateByteSize,
   typeOrder
-} from '../../../src/model/proto_values';
+} from '../../../src/model/values';
 import { ByteString } from '../../../src/util/byte_string';
 import { primitiveComparator } from '../../../src/util/misc';
 import * as typeUtils from '../../../src/util/types';

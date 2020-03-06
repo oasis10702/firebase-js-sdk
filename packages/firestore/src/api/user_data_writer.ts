@@ -29,7 +29,7 @@ import {
   normalizeNumber,
   normalizeTimestamp,
   ProtoTimestampValue
-} from '../model/proto_values';
+} from '../model/values';
 import { DocumentKey } from '../model/document_key';
 import {
   getLocalWriteTime,
