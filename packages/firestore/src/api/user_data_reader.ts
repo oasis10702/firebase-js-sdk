@@ -17,24 +17,11 @@
 
 import * as firestore from '@firebase/firestore-types';
 
-import { Timestamp } from '../api/timestamp';
+import * as api from '../protos/firestore_proto_api';
+
+import { Timestamp } from './timestamp';
 import { DatabaseId } from '../core/database_info';
 import { DocumentKey } from '../model/document_key';
-import {
-  FieldValue,
-  NumberValue,
-  ObjectValue,
-  ArrayValue,
-  BlobValue,
-  BooleanValue,
-  DoubleValue,
-  GeoPointValue,
-  IntegerValue,
-  NullValue,
-  RefValue,
-  StringValue,
-  TimestampValue
-} from '../model/field_value';
 
 import {
   FieldMask,
@@ -75,6 +62,7 @@ import {
   ServerTimestampFieldValueImpl
 } from './field_value';
 import { GeoPoint } from './geo_point';
+import { ObjectValue } from '../model/field_value';
 
 const RESERVED_FIELD_REGEX = /^__.*__$/;
 
@@ -184,9 +172,11 @@ class ParseContext {
    */
   constructor(
     readonly dataSource: UserDataSource,
+    readonly useProto3Json: boolean,
     readonly methodName: string,
     readonly path: FieldPath | null,
     readonly arrayElement?: boolean,
+
     fieldTransforms?: FieldTransform[],
     fieldMask?: FieldPath[]
   ) {
@@ -204,6 +194,7 @@ class ParseContext {
     const childPath = this.path == null ? null : this.path.child(field);
     const context = new ParseContext(
       this.dataSource,
+      true, // TODO(mrschmidt)
       this.methodName,
       childPath,
       /*arrayElement=*/ false,
@@ -218,6 +209,7 @@ class ParseContext {
     const childPath = this.path == null ? null : this.path.child(field);
     const context = new ParseContext(
       this.dataSource,
+      true, // TODO(mrschmidt)
       this.methodName,
       childPath,
       /*arrayElement=*/ false,
@@ -233,6 +225,7 @@ class ParseContext {
     // null.
     return new ParseContext(
       this.dataSource,
+      true, // TODO(mrschmidt)
       this.methodName,
       /*path=*/ null,
       /*arrayElement=*/ true,
@@ -319,6 +312,7 @@ export class UserDataReader {
   parseSetData(methodName: string, input: unknown): ParsedSetData {
     const context = new ParseContext(
       UserDataSource.Set,
+      true, // TODO(mrschmidt)
       methodName,
       FieldPath.EMPTY_PATH
     );
@@ -341,6 +335,7 @@ export class UserDataReader {
   ): ParsedSetData {
     const context = new ParseContext(
       UserDataSource.MergeSet,
+      true, // TODO(mrschmidt)
       methodName,
       FieldPath.EMPTY_PATH
     );
@@ -398,6 +393,7 @@ export class UserDataReader {
   parseUpdateData(methodName: string, input: unknown): ParsedUpdateData {
     const context = new ParseContext(
       UserDataSource.Update,
+      true, // TODO(mrschmidt)
       methodName,
       FieldPath.EMPTY_PATH
     );
@@ -417,7 +413,7 @@ export class UserDataReader {
         const parsedValue = this.parseData(value, childContext);
         if (parsedValue != null) {
           fieldMaskPaths = fieldMaskPaths.add(path);
-          updateData.set(path, parsedValue.proto);
+          updateData.set(path, parsedValue);
         }
       }
     });
@@ -439,6 +435,7 @@ export class UserDataReader {
   ): ParsedUpdateData {
     const context = new ParseContext(
       UserDataSource.Update,
+      true, // TODO(mrschmidt)
       methodName,
       FieldPath.EMPTY_PATH
     );
@@ -477,7 +474,7 @@ export class UserDataReader {
         const parsedValue = this.parseData(value, childContext);
         if (parsedValue != null) {
           fieldMaskPaths = fieldMaskPaths.add(path);
-          updateData.set(path, parsedValue.proto);
+          updateData.set(path, parsedValue);
         }
       }
     }
@@ -501,9 +498,10 @@ export class UserDataReader {
     methodName: string,
     input: unknown,
     allowArrays = false
-  ): FieldValue {
+  ): api.Value {
     const context = new ParseContext(
       allowArrays ? UserDataSource.ArrayArgument : UserDataSource.Argument,
+      true, // TODO(mrschmidt)
       methodName,
       FieldPath.EMPTY_PATH
     );
@@ -535,7 +533,7 @@ export class UserDataReader {
    * @return The parsed value, or null if the value was a FieldValue sentinel
    * that should not be included in the resulting parsed data.
    */
-  private parseData(input: unknown, context: ParseContext): FieldValue | null {
+  private parseData(input: unknown, context: ParseContext): api.Value | null {
     input = this.runPreConverter(input, context);
     if (looksLikeJsonObject(input)) {
       validatePlainObject('Unsupported field value:', context, input);
@@ -575,7 +573,7 @@ export class UserDataReader {
     }
   }
 
-  private parseObject(obj: Dict<unknown>, context: ParseContext): FieldValue {
+  private parseObject(obj: Dict<unknown>, context: ParseContext): api.Value {
     let builder = ObjectValue.newBuilder();
 
     if (isEmpty(obj)) {
@@ -591,16 +589,16 @@ export class UserDataReader {
           context.childContextForField(key)
         );
         if (parsedValue != null) {
-          builder.set(new FieldPath([key]), parsedValue.proto);
+          builder.set(new FieldPath([key]), parsedValue);
         }
       });
     }
 
-    return builder.build();
+    return builder.build().proto;
   }
 
-  private parseArray(array: unknown[], context: ParseContext): FieldValue {
-    const result = [] as FieldValue[];
+  private parseArray(array: unknown[], context: ParseContext): api.Value {
+    const values: api.Value[] = [];
     let entryIndex = 0;
     for (const entry of array) {
       let parsedEntry = this.parseData(
@@ -610,12 +608,12 @@ export class UserDataReader {
       if (parsedEntry == null) {
         // Just include nulls in the array for fields being replaced with a
         // sentinel.
-        parsedEntry = NullValue.INSTANCE;
+        parsedEntry = { nullValue: 'NULL_VALUE' };
       }
-      result.push(parsedEntry);
+      values.push(parsedEntry);
       entryIndex++;
     }
-    return FieldValue.of({arrayValue: { values: result.map(v => v.proto) } } );
+    return { arrayValue: { values } };
   }
 
   /**
@@ -686,7 +684,7 @@ export class UserDataReader {
       const operand = this.parseQueryValue(
         'FieldValue.increment',
         value._operand
-      ) as NumberValue;
+      );
       const numericIncrement = new NumericIncrementTransformOperation(operand);
       context.fieldTransforms.push(
         new FieldTransform(context.path, numericIncrement)
@@ -701,57 +699,98 @@ export class UserDataReader {
    *
    * @return The parsed value
    */
-  private parseScalarValue(value: unknown, context: ParseContext): FieldValue {
-    if (value === null) {
-      return NullValue.INSTANCE;
-    } else if (typeof value === 'number') {
-      if (typeUtils.isSafeInteger(value)) {
-        return FieldValue.of({integerValue:value});
+  private parseScalarValue(input: unknown, context: ParseContext): api.Value {
+    if (input === null) {
+      return { nullValue: 'NULL_VALUE' };
+    } else if (typeof input === 'number') {
+      if (typeUtils.isSafeInteger(input)) {
+        return { integerValue: input };
       } else {
-        return FieldValue.of({doubleValue:value});
+        if (context.useProto3Json) {
+          // Proto 3 let's us encode NaN and Infinity as string values as
+          // expected by the backend. This is currently not checked by our unit
+          // tests because they rely on protobuf.js.
+          if (isNaN(input)) {
+            return { doubleValue: 'NaN' } as {};
+          } else if (input === Infinity) {
+            return { doubleValue: 'Infinity' } as {};
+          } else if (input === -Infinity) {
+            return { doubleValue: '-Infinity' } as {};
+          }
+        }
+        return { doubleValue: input };
       }
-    } else if (typeof value === 'boolean') {
-      return BooleanValue.valueOf(value);
-    } else if (typeof value === 'string') {
-      return FieldValue.of({stringValue: value});
-    } else if (value instanceof Date) {
-      return this.parseTimestamp(Timestamp.fromDate(value));
-    } else if (value instanceof Timestamp) {
-      // Firestore backend truncates precision down to microseconds. To ensure
-      // offline mode works the same with regards to truncation, perform the
-      // truncation immediately without waiting for the backend to do that.
-      return this.parseTimestamp(value);
-    } else if (value instanceof GeoPoint) {
-      return FieldValue.of({geoPointValue: { latitude: value.latitude, longitude: value.longitude }});
-    } else if (value instanceof Blob) {
-      return FieldValue.of({bytesValue: value.toBase64()});
-    } else if (value instanceof DocumentKeyReference) {
-      return RefValue.valueOf(value.databaseId, value.key);
+    } else if (typeof input === 'boolean') {
+      return { booleanValue: input };
+    } else if (typeof input === 'string') {
+      return { stringValue: input };
+    } else if (input instanceof Date) {
+      const timestamp = Timestamp.fromDate(input);
+      return this.parseTimestamp(timestamp);
+    } else if (input instanceof Timestamp) {
+      return this.parseTimestamp(input);
+    } else if (input instanceof GeoPoint) {
+      return {
+        geoPointValue: {
+          latitude: input.latitude,
+          longitude: input.longitude
+        }
+      };
+    } else if (input instanceof Blob) {
+      if (context.useProto3Json) {
+        return { bytesValue: input._byteString.toBase64() };
+      } else {
+        return { bytesValue: input._byteString.toUint8Array() };
+      }
+    } else if (input instanceof DocumentKeyReference) {
+      return {
+        referenceValue:
+          'projects/project/databases/(default)/documents/' + input.key.path
+      };
+    } else if (Array.isArray(input)) {
+      return {
+        arrayValue: {
+          values: input.map(el => this.parseScalarValue(el, context))
+        }
+      };
+    } else if (typeof input === 'object') {
+      const result: api.Value = { mapValue: { fields: {} } };
+      forEach(input as Dict<unknown>, (key: string, val: unknown) => {
+        result.mapValue!.fields![key] = this.parseScalarValue(val, context);
+      });
+      return result;
     } else {
       throw context.createError(
-        `Unsupported field value: ${valueDescription(value)}`
+        `Unsupported field value: ${valueDescription(input)}`
       );
     }
   }
 
-  private parseTimestamp( timestamp:Timestamp) : FieldValue {
-  // Firestore backend truncates precision down to microseconds. To ensure
-  // offline mode works the same with regards to truncation, perform the
-  // truncation immediately without waiting for the backend to do that.
-  const truncatedNanoseconds = Math.floor(timestamp.nanoseconds / 1000) * 1000;
-  return FieldValue.of({timestampValue: {seconds: timestamp.seconds, nanos: truncatedNanoseconds}});
-}
+  private parseTimestamp(timestamp: Timestamp): api.Value {
+    // Firestore backend truncates precision down to microseconds. To ensure
+    // offline mode works the same with regards to truncation, perform the
+    // truncation immediately without waiting for the backend to do that.
+    const truncatedNanoseconds =
+      Math.floor(timestamp.nanoseconds / 1000) * 1000;
+    return {
+      timestampValue: {
+        seconds: timestamp.seconds,
+        nanos: truncatedNanoseconds
+      }
+    };
+  }
 
-private parseArrayTransformElements(
+  private parseArrayTransformElements(
     methodName: string,
     elements: unknown[]
-  ): FieldValue[] {
+  ): api.Value[] {
     return elements.map((element, i) => {
       // Although array transforms are used with writes, the actual elements
       // being unioned or removed are not considered writes since they cannot
       // contain any FieldValue sentinels, etc.
       const context = new ParseContext(
         UserDataSource.Argument,
+        true, // TODO(mrschmidt)
         methodName,
         FieldPath.EMPTY_PATH
       );

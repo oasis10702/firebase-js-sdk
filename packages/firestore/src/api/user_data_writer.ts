@@ -17,22 +17,28 @@
 
 import * as firestore from '@firebase/firestore-types';
 
-import {
-  ArrayValue,
-  BlobValue,
-  FieldValue,
-  ObjectValue,
-  RefValue,
-  ServerTimestampValue,
-  TimestampValue
-} from '../model/field_value';
+import * as api from '../protos/firestore_proto_api';
+
 import { DocumentReference, Firestore } from './database';
 import * as log from '../util/log';
 import { Blob } from './blob';
 import { Timestamp } from './timestamp';
-import {forEach} from "../util/obj";
-import {normalizeByteString} from "../model/proto_values";
-import {DocumentKey} from "../model/document_key";
+import { forEach } from '../util/obj';
+import {
+  normalizeByteString,
+  normalizeNumber,
+  normalizeTimestamp,
+  ProtoTimestampValue
+} from '../model/proto_values';
+import { DocumentKey } from '../model/document_key';
+import {
+  getLocalWriteTime,
+  getPreviousValue,
+  isServerTimestamp
+} from '../model/server_timestamps';
+import { fail } from '../util/assert';
+import { GeoPoint } from './geo_point';
+import { DatabaseId } from '../core/database_info';
 
 export type ServerTimestampBehavior = 'estimate' | 'previous' | 'none';
 
@@ -48,50 +54,73 @@ export class UserDataWriter<T> {
     private readonly converter?: firestore.FirestoreDataConverter<T>
   ) {}
 
-  convertValue(value: FieldValue): unknown {
-    if (value instanceof ObjectValue) {
-      return this.convertObject(value);
-    } else if (value instanceof ArrayValue) {
-      return this.convertArray(value);
-    } else if (value instanceof RefValue) {
+  convertValue(value: api.Value): unknown {
+    if ('nullValue' in value) {
+      return null;
+    } else if ('booleanValue' in value) {
+      return value.booleanValue!;
+    } else if ('integerValue' in value) {
+      return value.integerValue!;
+    } else if ('doubleValue' in value) {
+      return value.doubleValue!;
+    } else if ('timestampValue' in value) {
+      return this.convertTimestamp(value.timestampValue!);
+    } else if ('stringValue' in value) {
+      return value.stringValue!;
+    } else if ('bytesValue' in value) {
+      return new Blob(normalizeByteString(value.bytesValue!));
+    } else if ('referenceValue' in value) {
       return this.convertReference(value);
-    } else if (value instanceof BlobValue) {
-      return new Blob(normalizeByteString(value.proto.bytesValue!));
-    } else if (value instanceof TimestampValue) {
-      return this.convertTimestamp(value.value() as Timestamp);
-    } else if (value instanceof ServerTimestampValue) {
-      return this.convertServerTimestamp(value);
+    } else if ('geoPointValue' in value) {
+      return new GeoPoint(
+        normalizeNumber(value.geoPointValue!.latitude),
+        normalizeNumber(value.geoPointValue!.longitude)
+      );
+    } else if ('arrayValue' in value) {
+      return this.convertArray(value.arrayValue!);
+    } else if ('mapValue' in value) {
+      if (isServerTimestamp(value)) {
+        return this.convertServerTimestamp(value);
+      }
+      return this.convertObject(value.mapValue!);
     } else {
-      return value.value();
+      return fail('Invalid value type: ' + JSON.stringify(value));
     }
   }
 
-  private convertObject(data: ObjectValue): firestore.DocumentData {
+  private convertObject(mapValue: api.MapValue): firestore.DocumentData {
     const result: firestore.DocumentData = {};
-    forEach (data.proto.mapValue!.fields || {}, (key, value) => {
-      result[key] = this.convertValue(FieldValue.of(value));
+    forEach(mapValue.fields || {}, (key, value) => {
+      result[key] = this.convertValue(value);
     });
     return result;
   }
 
-  private convertArray(data: ArrayValue): unknown[] {
-    return data.getValues().map(value => this.convertValue(value));
+  private convertArray(arrayValue: api.ArrayValue): unknown[] {
+    return (arrayValue.values || []).map(value => this.convertValue(value));
   }
 
-  private convertServerTimestamp(value: ServerTimestampValue): unknown {
+  private convertServerTimestamp(value: api.Value): unknown {
     switch (this.serverTimestampBehavior) {
       case 'previous':
-        return value.previousValue
-          ? this.convertValue(value.previousValue)
-          : null;
+        const previousValue = getPreviousValue(value);
+        if (previousValue == null) {
+          return null;
+        }
+        return this.convertValue(previousValue);
       case 'estimate':
-        return this.convertTimestamp(value.localWriteTime);
+        return this.convertTimestamp(getLocalWriteTime(value));
       default:
-        return value.value();
+        return null;
     }
   }
 
-  private convertTimestamp(timestamp: Timestamp): Timestamp | Date {
+  private convertTimestamp(value: ProtoTimestampValue): Timestamp | Date {
+    const normalizedValue = normalizeTimestamp(value);
+    const timestamp = new Timestamp(
+      normalizedValue.seconds,
+      normalizedValue.nanos
+    );
     if (this.timestampsInSnapshots) {
       return timestamp;
     } else {
@@ -99,15 +128,16 @@ export class UserDataWriter<T> {
     }
   }
 
-  private convertReference(value: RefValue): DocumentReference<T> {
-    const key = value.value() as DocumentKey;
+  private convertReference(value: api.Value): DocumentReference<T> {
+    const refDatabase = DatabaseId.fromName(value.referenceValue!);
+    const key = DocumentKey.fromPathString(value.referenceValue!);
     const database = this.firestore.ensureClientConfigured().databaseId();
-    if (!value.databaseId.isEqual(database)) {
+    if (!refDatabase.isEqual(database)) {
       // TODO(b/64130202): Somehow support foreign references.
       log.error(
-        `Document ${value.key} contains a document ` +
+        `Document ${key} contains a document ` +
           `reference within a different database (` +
-          `${value.databaseId.projectId}/${value.databaseId.database}) which is not ` +
+          `${refDatabase.projectId}/${refDatabase.database}) which is not ` +
           `supported. It will be treated as a reference in the current ` +
           `database (${database.projectId}/${database.database}) ` +
           `instead.`

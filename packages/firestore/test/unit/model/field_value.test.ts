@@ -20,15 +20,7 @@ import { GeoPoint } from '../../../src/api/geo_point';
 import { Timestamp } from '../../../src/api/timestamp';
 import { DatabaseId } from '../../../src/core/database_info';
 import { DocumentKey } from '../../../src/model/document_key';
-import {
-  FieldValue,
-  ServerTimestampValue,
-  TypeOrder
-} from '../../../src/model/field_value';
-import {
-  ObjectValue,
-  PrimitiveValue
-} from '../../../src/model/proto_field_value';
+import { ObjectValue, TypeOrder } from '../../../src/model/field_value';
 import { canonicalId, estimateByteSize } from '../../../src/model/proto_values';
 import { ByteString } from '../../../src/util/byte_string';
 import { primitiveComparator } from '../../../src/util/misc';

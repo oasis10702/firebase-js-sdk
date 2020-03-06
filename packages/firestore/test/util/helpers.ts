@@ -16,6 +16,9 @@
  */
 
 import * as firestore from '@firebase/firestore-types';
+
+import * as api from '../../src/protos/firestore_proto_api';
+
 import { expect } from 'chai';
 
 import { Blob } from '../../src/api/blob';
@@ -60,11 +63,7 @@ import {
 import { DocumentComparator } from '../../src/model/document_comparator';
 import { DocumentKey } from '../../src/model/document_key';
 import { DocumentSet } from '../../src/model/document_set';
-import {
-  FieldValue,
-  JsonObject,
-  ObjectValue
-} from '../../src/model/field_value';
+import { JsonObject, ObjectValue } from '../../src/model/field_value';
 import {
   DeleteMutation,
   FieldMask,
@@ -147,7 +146,7 @@ export function removedDoc(keyStr: string): NoDocument {
   return new NoDocument(key(keyStr), SnapshotVersion.forDeletedDoc());
 }
 
-export function wrap(value: unknown): FieldValue {
+export function wrap(value: unknown): api.Value {
   // HACK: We use parseQueryValue() since it accepts scalars as well as
   // arrays / objects, and our tests currently use wrap() pretty generically so
   // we don't know the intent.
@@ -263,7 +262,7 @@ export function bound(
   values: Array<[string, {}, firestore.OrderByDirection]>,
   before: boolean
 ): Bound {
-  const components: FieldValue[] = [];
+  const components: api.Value[] = [];
   for (const value of values) {
     const [_, dataValue] = value;
     components.push(wrap(dataValue));

@@ -26,7 +26,7 @@ describe('Document', () => {
     };
     const document = doc('rooms/Eros', 1, data);
 
-    const value = document.value();
+    const value = document.data().proto;
     expect(value).to.deep.equal({
       desc: 'Discuss all the project related stuff',
       owner: 'Jonny'
@@ -42,12 +42,10 @@ describe('Document', () => {
     };
     const document = doc('rooms/Eros', 1, data, { hasLocalMutations: true });
 
-    expect(document.field(field('desc'))!.value()).to.deep.equal(
+    expect(document.field(field('desc'))).to.deep.equal(
       'Discuss all the project related stuff'
     );
-    expect(document.field(field('owner.title'))!.value()).to.deep.equal(
-      'scallywag'
-    );
+    expect(document.field(field('owner.title'))).to.deep.equal('scallywag');
     expect(document.hasLocalMutations).to.equal(true);
   });
 

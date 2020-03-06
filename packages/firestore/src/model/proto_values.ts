@@ -17,12 +17,7 @@
 
 import * as api from '../protos/firestore_proto_api';
 
-import {
-  FieldValue,
-  RefValue,
-  ServerTimestampValue,
-  TypeOrder
-} from './field_value';
+import { TypeOrder } from './field_value';
 import { assert, fail } from '../util/assert';
 import { forEach, keys, size } from '../util/obj';
 import { ByteString } from '../util/byte_string';
@@ -31,7 +26,9 @@ import {
   numericEquals,
   primitiveComparator
 } from '../util/misc';
-import {bound} from "../../test/util/helpers";
+import { DatabaseId } from '../core/database_info';
+import { DocumentKey } from './document_key';
+import { getLocalWriteTime, isServerTimestamp } from './server_timestamps';
 
 // A RegExp matching ISO 8601 UTC timestamps with optional fraction.
 const ISO_TIMESTAMP_REG_EXP = new RegExp(
@@ -39,7 +36,7 @@ const ISO_TIMESTAMP_REG_EXP = new RegExp(
 );
 
 // Denotes the possible representations for timestamps in the Value type.
-type ProtoTimestampValue =
+export type ProtoTimestampValue =
   | string
   | { seconds?: string | number; nanos?: number };
 
@@ -64,7 +61,7 @@ export function typeOrder(value: api.Value): TypeOrder {
   } else if ('arrayValue' in value) {
     return TypeOrder.ArrayValue;
   } else if ('mapValue' in value) {
-    if (ServerTimestampValue.isServerTimestamp(value)) {
+    if (isServerTimestamp(value)) {
       return TypeOrder.TimestampValue;
     }
     return TypeOrder.ObjectValue;
@@ -108,16 +105,12 @@ export function equals(left: api.Value, right: api.Value): boolean {
 }
 
 function timestampEquals(left: api.Value, right: api.Value): boolean {
-  if (ServerTimestampValue.isServerTimestamp(left)
-    && ServerTimestampValue.isServerTimestamp(right)) {
-    return new ServerTimestampValue(left)
-      .localWriteTime
-      .isEqual(new ServerTimestampValue(right).localWriteTime);
-  } else if (ServerTimestampValue.isServerTimestamp(left)
-    || ServerTimestampValue.isServerTimestamp(right)) {
+  if (isServerTimestamp(left) && isServerTimestamp(right)) {
+    return getLocalWriteTime(left).isEqual(getLocalWriteTime(right));
+  } else if (isServerTimestamp(left) || isServerTimestamp(right)) {
     return false;
   }
-  
+
   if (
     typeof left.timestampValue === 'string' &&
     typeof right.timestampValue === 'string' &&
@@ -197,12 +190,12 @@ function objectEquals(left: api.Value, right: api.Value): boolean {
       }
     }
   }
-  return true; 
+  return true;
 }
 
 /** Returns true if the Value list contains the specified element. */
-export function contains(haystack: api.Value[] | undefined, needle: api.Value): boolean {
-  return haystack?.find(v => equals(v, needle)) !== undefined;
+export function contains(haystack: api.ArrayValue, needle: api.Value): boolean {
+  return (haystack.values || []).find(v => equals(v, needle)) !== undefined;
 }
 
 export function compare(left: api.Value, right: api.Value): number {
@@ -401,9 +394,7 @@ function canonifyGeoPoint(geoPoint: api.LatLng): string {
 }
 
 function canonifyReference(referenceValue: string): string {
-  const fieldValue = FieldValue.of({referenceValue});
-  assert(fieldValue instanceof RefValue, "Value should be a RefValue");
-  return fieldValue.key.toString();
+  return DocumentKey.fromPathString(referenceValue).toString();
 }
 
 function canonifyMap(mapValue: api.MapValue): string {
@@ -555,4 +546,51 @@ export function normalizeByteString(blob: string | Uint8Array): ByteString {
   } else {
     return ByteString.fromUint8Array(blob);
   }
+}
+
+/** Returns true if `value` is a IntegerValue. */
+export function isInteger(value?: api.Value | null): boolean {
+  return !!value && 'integerValue' in value;
+}
+
+/** Returns true if `value` is a DoubleValue. */
+export function isDouble(value?: api.Value | null): boolean {
+  return !!value && 'doubleValue' in value;
+}
+
+/** Returns true if `value` is either a IntegerValue or a DoubleValue. */
+export function isNumber(value?: api.Value | null): boolean {
+  return isInteger(value) || isDouble(value);
+}
+
+/** Returns true if `value` is an ArrayValue. */
+export function isArray(value?: api.Value | null): boolean {
+  return !!value && 'arrayValue' in value;
+}
+
+/** Returns true if `value` is a ReferenceValue. */
+export function isReferenceValue(value?: api.Value | null): boolean {
+  return !!value && 'referenceValue' in value;
+}
+
+/** Returns true if `value` is a NullValue. */
+export function isNullValue(value?: api.Value | null): boolean {
+  return !!value && 'nullValue' in value;
+}
+
+/** Returns true if `value` is NaN. */
+export function isNanValue(value?: api.Value | null): boolean {
+  return !!value && isNaN(normalizeNumber(value.doubleValue));
+}
+
+/** Returns true if `value` is a MapValue. */
+export function isMapValue(value?: api.Value | null) {
+  return !!value && 'mapValue' in value;
+}
+
+/** Creates a referenceValue Proto for `databaseId` and `key`. */
+export function refValue(databaseId: DatabaseId, key: DocumentKey): api.Value {
+  return {
+    referenceValue: `projects/${databaseId.projectId}/databases/${databaseId.database}/documents/${key}`
+  };
 }

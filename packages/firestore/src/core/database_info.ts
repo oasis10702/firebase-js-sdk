@@ -16,6 +16,8 @@
  */
 
 import { primitiveComparator } from '../util/misc';
+import { ResourcePath } from '../model/path';
+import { assert } from '../util/assert';
 
 export class DatabaseInfo {
   /**
@@ -47,6 +49,18 @@ export class DatabaseId {
   readonly database: string;
   constructor(readonly projectId: string, database?: string) {
     this.database = database ? database : DEFAULT_DATABASE_NAME;
+  }
+
+  /** Returns a DatabaseId from a fully qualified resource name. */
+  static fromName(name: string): DatabaseId {
+    const resourceName = ResourcePath.fromString(name);
+    assert(
+      resourceName.length >= 3 &&
+        resourceName.get(0) === 'projects' &&
+        resourceName.get(2) === 'databases',
+      'Tried to parse an invalid resource name: ' + resourceName
+    );
+    return new DatabaseId(resourceName.get(1), resourceName.get(3));
   }
 
   get isDefaultDatabase(): boolean {

@@ -16,7 +16,6 @@
  */
 
 import { Blob } from '../api/blob';
-import { GeoPoint } from '../api/geo_point';
 import { Timestamp } from '../api/timestamp';
 import { DatabaseId } from '../core/database_info';
 import {
@@ -52,7 +51,6 @@ import { FieldPath, ResourcePath } from '../model/path';
 import * as api from '../protos/firestore_proto_api';
 import { assert, fail } from '../util/assert';
 import { Code, FirestoreError } from '../util/error';
-import * as obj from '../util/obj';
 import { ByteString } from '../util/byte_string';
 import * as typeUtils from '../util/types';
 
@@ -73,11 +71,14 @@ import {
   WatchTargetChangeState
 } from './watch_change';
 import {
+  isNanValue,
+  isNullValue,
+  isNumber,
   normalizeByteString,
   normalizeNumber,
   normalizeTimestamp
 } from '../model/proto_values';
-import {FieldValue, ObjectValue} from "../model/field_value";
+import { ObjectValue } from '../model/field_value';
 
 const DIRECTIONS = (() => {
   const dirs: { [dir: string]: api.OrderDirection } = {};
@@ -386,7 +387,7 @@ export class JsonProtoSerializer {
   ): Document {
     const key = this.fromName(document.name!);
     const version = this.fromVersion(document.updateTime!);
-    const data = new ObjectValue({mapValue: { fields: document.fields}});
+    const data = new ObjectValue({ mapValue: { fields: document.fields } });
     return new Document(key, version, data, {
       hasCommittedMutations: !!hasCommittedMutations
     });
@@ -401,7 +402,7 @@ export class JsonProtoSerializer {
     assertPresent(doc.found.updateTime, 'doc.found.updateTime');
     const key = this.fromName(doc.found.name);
     const version = this.fromVersion(doc.found.updateTime);
-    const data = new ObjectValue({mapValue: { fields: doc.found.fields}});
+    const data = new ObjectValue({ mapValue: { fields: doc.found.fields } });
     return new Document(key, version, data, {});
   }
 
@@ -539,7 +540,9 @@ export class JsonProtoSerializer {
       );
       const key = this.fromName(entityChange.document.name);
       const version = this.fromVersion(entityChange.document.updateTime);
-      const data = new ObjectValue( { mapValue: { fields : entityChange.document.fields}});
+      const data = new ObjectValue({
+        mapValue: { fields: entityChange.document.fields }
+      });
       const doc = new Document(key, version, data, {});
       const updatedTargetIds = entityChange.targetIds || [];
       const removedTargetIds = entityChange.removedTargetIds || [];
@@ -582,7 +585,9 @@ export class JsonProtoSerializer {
     return watchChange;
   }
 
-  fromWatchTargetChangeState(state: api.TargetChangeTargetChangeType): WatchTargetChangeState {
+  fromWatchTargetChangeState(
+    state: api.TargetChangeTargetChangeType
+  ): WatchTargetChangeState {
     if (state === 'NO_CHANGE') {
       return WatchTargetChangeState.NoChange;
     } else if (state === 'ADD') {
@@ -660,7 +665,9 @@ export class JsonProtoSerializer {
     if (proto.update) {
       assertPresent(proto.update.name, 'name');
       const key = this.fromName(proto.update.name);
-      const value = new ObjectValue({mapValue: { fields: proto.update.fields }} );
+      const value = new ObjectValue({
+        mapValue: { fields: proto.update.fields }
+      });
       if (proto.updateMask) {
         const fieldMask = this.fromDocumentMask(proto.updateMask);
         return new PatchMutation(key, value, fieldMask, precondition);
@@ -729,11 +736,9 @@ export class JsonProtoSerializer {
       version = this.fromVersion(commitTime);
     }
 
-    let transformResults: fieldValue.FieldValue[] | null = null;
+    let transformResults: api.Value[] | null = null;
     if (proto.transformResults && proto.transformResults.length > 0) {
-      transformResults = proto.transformResults.map(result =>
-       FieldValue.of(result)
-      );
+      transformResults = proto.transformResults;
     }
     return new MutationResult(version, transformResults);
   }
@@ -764,20 +769,20 @@ export class JsonProtoSerializer {
       return {
         fieldPath: fieldTransform.field.canonicalString(),
         appendMissingElements: {
-          values: transform.elements.map(v => v.proto)
+          values: transform.elements
         }
       };
     } else if (transform instanceof ArrayRemoveTransformOperation) {
       return {
         fieldPath: fieldTransform.field.canonicalString(),
         removeAllFromArray: {
-          values: transform.elements.map(v => v.proto)
+          values: transform.elements
         }
       };
     } else if (transform instanceof NumericIncrementTransformOperation) {
       return {
         fieldPath: fieldTransform.field.canonicalString(),
-        increment: transform.operand.proto
+        increment: transform.operand
       };
     } else {
       throw fail('Unknown transform: ' + fieldTransform.transform);
@@ -794,23 +799,12 @@ export class JsonProtoSerializer {
       transform = ServerTimestampTransform.instance;
     } else if ('appendMissingElements' in proto) {
       const values = proto.appendMissingElements!.values || [];
-      transform = new ArrayUnionTransformOperation(
-        values.map(v => FieldValue.of(v))
-      );
+      transform = new ArrayUnionTransformOperation(values);
     } else if ('removeAllFromArray' in proto) {
       const values = proto.removeAllFromArray!.values || [];
-      transform = new ArrayRemoveTransformOperation(
-        values.map(v => FieldValue.of(v))
-      );
+      transform = new ArrayRemoveTransformOperation(values);
     } else if ('increment' in proto) {
-      const operand = FieldValue.of(proto.increment!);
-      assert(
-        operand instanceof fieldValue.NumberValue,
-        'NUMERIC_ADD transform requires a NumberValue'
-      );
-      transform = new NumericIncrementTransformOperation(
-        operand as fieldValue.NumberValue
-      );
+      transform = new NumericIncrementTransformOperation(proto.increment!);
     } else {
       fail('Unknown transform proto: ' + JSON.stringify(proto));
     }
@@ -1030,13 +1024,13 @@ export class JsonProtoSerializer {
   private toCursor(cursor: Bound): api.Cursor {
     return {
       before: cursor.before,
-      values: cursor.position.map(component => component.proto)
+      values: cursor.position
     };
   }
 
   private fromCursor(cursor: api.Cursor): Bound {
     const before = !!cursor.before;
-    const position = cursor.values!.map(component => FieldValue.of(component));
+    const position = cursor.values || [];
     return new Bound(position, before);
   }
 
@@ -1114,21 +1108,21 @@ export class JsonProtoSerializer {
     return FieldFilter.create(
       this.fromFieldPathReference(filter.fieldFilter!.field!),
       this.fromOperatorName(filter.fieldFilter!.op!),
-      FieldValue.of(filter.fieldFilter!.value!)
+      filter.fieldFilter!.value!
     );
   }
 
   // visible for testing
   toUnaryOrFieldFilter(filter: FieldFilter): api.Filter {
     if (filter.op === Operator.EQUAL) {
-      if (filter.value.isEqual(fieldValue.DoubleValue.NAN)) {
+      if (isNanValue(filter.value)) {
         return {
           unaryFilter: {
             field: this.toFieldPathReference(filter.field),
             op: 'IS_NAN'
           }
         };
-      } else if (filter.value.isEqual(fieldValue.NullValue.INSTANCE)) {
+      } else if (isNullValue(filter.value)) {
         return {
           unaryFilter: {
             field: this.toFieldPathReference(filter.field),
@@ -1141,7 +1135,7 @@ export class JsonProtoSerializer {
       fieldFilter: {
         field: this.toFieldPathReference(filter.field),
         op: this.toOperatorName(filter.op),
-        value: filter.value.proto
+        value: filter.value
       }
     };
   }
@@ -1152,20 +1146,16 @@ export class JsonProtoSerializer {
         const nanField = this.fromFieldPathReference(
           filter.unaryFilter!.field!
         );
-        return FieldFilter.create(
-          nanField,
-          Operator.EQUAL,
-          fieldValue.DoubleValue.NAN
-        );
+        return FieldFilter.create(nanField, Operator.EQUAL, {
+          doubleValue: NaN
+        });
       case 'IS_NULL':
         const nullField = this.fromFieldPathReference(
           filter.unaryFilter!.field!
         );
-        return FieldFilter.create(
-          nullField,
-          Operator.EQUAL,
-          fieldValue.NullValue.INSTANCE
-        );
+        return FieldFilter.create(nullField, Operator.EQUAL, {
+          nullValue: 'NULL_VALUE'
+        });
       case 'OPERATOR_UNSPECIFIED':
         return fail('Unspecified filter');
       default:

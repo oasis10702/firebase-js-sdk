@@ -17,6 +17,8 @@
 
 import * as firestore from '@firebase/firestore-types';
 
+import * as api from '../protos/firestore_proto_api';
+
 import { FirebaseApp } from '@firebase/app-types';
 import { FirebaseService, _FirebaseApp } from '@firebase/app-types/private';
 import { DatabaseId, DatabaseInfo } from '../core/database_info';
@@ -42,12 +44,6 @@ import { IndexedDbPersistence } from '../local/indexeddb_persistence';
 import { LruParams } from '../local/lru_garbage_collector';
 import { Document, MaybeDocument, NoDocument } from '../model/document';
 import { DocumentKey } from '../model/document_key';
-import {
-  ArrayValue,
-  FieldValue,
-  RefValue,
-  ServerTimestampValue
-} from '../model/field_value';
 import { DeleteMutation, Mutation, Precondition } from '../model/mutation';
 import { FieldPath, ResourcePath } from '../model/path';
 import { PlatformSupport } from '../platform/platform';
@@ -106,6 +102,8 @@ import {
 import { UserDataWriter } from './user_data_writer';
 import { FirebaseAuthInternalName } from '@firebase/auth-interop-types';
 import { Provider } from '@firebase/component';
+import { refValue } from '../model/proto_values';
+import { isServerTimestamp } from '../model/server_timestamps';
 
 // settings() defaults:
 const DEFAULT_HOST = 'firestore.googleapis.com';
@@ -1385,7 +1383,7 @@ export class DocumentSnapshot<T = firestore.DocumentData>
           options.serverTimestamps,
           /* converter= */ undefined
         );
-        return userDataWriter.convertValue(this._document.data()) as T;
+        return userDataWriter.convertValue(this._document.data().proto) as T;
       }
     }
   }
@@ -1490,7 +1488,7 @@ export class Query<T = firestore.DocumentData> implements firestore.Query<T> {
     ];
     validateStringEnum('Query.where', whereFilterOpEnums, 2, opStr);
 
-    let fieldValue: FieldValue;
+    let fieldValue: api.Value;
     const fieldPath = fieldPathFromArgument('Query.where', field);
     const operator = Operator.fromString(opStr);
     if (fieldPath.isKeyField()) {
@@ -1505,11 +1503,11 @@ export class Query<T = firestore.DocumentData> implements firestore.Query<T> {
         );
       } else if (operator === Operator.IN) {
         this.validateDisjunctiveFilterElements(value, operator);
-        const referenceList: FieldValue[] = [];
-        for (const arrayValue of value as FieldValue[]) {
+        const referenceList: api.Value[] = [];
+        for (const arrayValue of value as api.Value[]) {
           referenceList.push(this.parseDocumentIdValue(arrayValue));
         }
-        fieldValue = ArrayValue.fromList(referenceList);
+        fieldValue = { arrayValue: { values: referenceList } };
       } else {
         fieldValue = this.parseDocumentIdValue(value);
       }
@@ -1733,11 +1731,8 @@ export class Query<T = firestore.DocumentData> implements firestore.Query<T> {
    * of the query or if any of the fields in the order by are an uncommitted
    * server timestamp.
    */
-  private boundFromDocument(
-    doc: Document,
-    before: boolean
-  ): Bound {
-    const components: FieldValue[] = [];
+  private boundFromDocument(doc: Document, before: boolean): Bound {
+    const components: api.Value[] = [];
 
     // Because people expect to continue/end a query at the exact document
     // provided, we need to use the implicit sort order rather than the explicit
@@ -1748,10 +1743,10 @@ export class Query<T = firestore.DocumentData> implements firestore.Query<T> {
     // results.
     for (const orderBy of this._query.orderBy) {
       if (orderBy.field.isKeyField()) {
-        components.push( RefValue.valueOf(this.firestore._databaseId, doc.key));
+        components.push(refValue(this.firestore._databaseId, doc.key));
       } else {
         const value = doc.field(orderBy.field);
-        if (value instanceof ServerTimestampValue) {
+        if (isServerTimestamp(value)) {
           throw new FirestoreError(
             Code.INVALID_ARGUMENT,
             'Invalid query. You are trying to start or end a query using a ' +
@@ -1795,7 +1790,7 @@ export class Query<T = firestore.DocumentData> implements firestore.Query<T> {
       );
     }
 
-    const components: FieldValue[] = [];
+    const components: api.Value[] = [];
     for (let i = 0; i < values.length; i++) {
       const rawValue = values[i];
       const orderByComponent = orderBy[i];
@@ -1829,7 +1824,7 @@ export class Query<T = firestore.DocumentData> implements firestore.Query<T> {
           );
         }
         const key = new DocumentKey(path);
-        components.push(RefValue.valueOf(this.firestore._databaseId, key));
+        components.push(refValue(this.firestore._databaseId, key));
       } else {
         const wrapped = this.firestore._dataReader.parseQueryValue(
           methodName,
@@ -2028,7 +2023,7 @@ export class Query<T = firestore.DocumentData> implements firestore.Query<T> {
    * appropriate errors if the value is anything other than a DocumentReference
    * or String, or if the string is malformed.
    */
-  private parseDocumentIdValue(documentIdValue: unknown): RefValue {
+  private parseDocumentIdValue(documentIdValue: unknown): api.Value {
     if (typeof documentIdValue === 'string') {
       if (documentIdValue === '') {
         throw new FirestoreError(
@@ -2059,10 +2054,10 @@ export class Query<T = firestore.DocumentData> implements firestore.Query<T> {
             `but '${path}' is not because it has an odd number of segments (${path.length}).`
         );
       }
-      return  RefValue.valueOf(this.firestore._databaseId, new DocumentKey(path));
+      return refValue(this.firestore._databaseId, new DocumentKey(path));
     } else if (documentIdValue instanceof DocumentReference) {
       const ref = documentIdValue as DocumentReference<T>;
-      return RefValue.valueOf(this.firestore._databaseId, ref._key);
+      return refValue(this.firestore._databaseId, ref._key);
     } else {
       throw new FirestoreError(
         Code.INVALID_ARGUMENT,
