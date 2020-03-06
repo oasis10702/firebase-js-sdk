@@ -15,33 +15,14 @@
  * limitations under the License.
  */
 
-
 import * as api from '../../../src/protos/firestore_proto_api';
 
 import { expect } from 'chai';
 import { GeoPoint } from '../../../src/api/geo_point';
-import { Timestamp } from '../../../src/api/timestamp';
-import { DatabaseId } from '../../../src/core/database_info';
-import { DocumentKey } from '../../../src/model/document_key';
 import { ObjectValue, TypeOrder } from '../../../src/model/field_value';
-import {
-  canonicalId,
-  estimateByteSize,
-  typeOrder
-} from '../../../src/model/values';
-import { ByteString } from '../../../src/util/byte_string';
-import { primitiveComparator } from '../../../src/util/misc';
+import { typeOrder } from '../../../src/model/values';
 import * as typeUtils from '../../../src/util/types';
-import {
-  blob,
-  dbId,
-  expectCorrectComparisonGroups,
-  expectEqualitySets,
-  field,
-  key,
-  mask,
-  ref, wrap
-} from '../../util/helpers';
+import { blob, field, mask, wrap, wrapObject } from '../../util/helpers';
 
 describe('FieldValue', () => {
   const date1 = new Date(2016, 4, 2, 1, 5);
@@ -65,7 +46,7 @@ describe('FieldValue', () => {
     for (let i = 0; i < primitiveValues.length; i++) {
       const primitiveValue = primitiveValues[i];
       const value = values[i];
-      expect(value.value()).to.equal(primitiveValue);
+      expect(value).to.deep.equal({ integerValue: primitiveValue });
     }
   });
 
@@ -89,9 +70,13 @@ describe('FieldValue', () => {
       const primitiveValue = primitiveValues[i];
       const value = values[i];
       if (isNaN(primitiveValue)) {
-        expect(isNaN(value.value() as number)).to.equal(isNaN(primitiveValue));
+        expect(value).to.deep.equal({ doubleValue: 'NaN' });
+      } else if (primitiveValue == Infinity) {
+        expect(value).to.deep.equal({ doubleValue: 'Infinity' });
+      } else if (primitiveValue == -Infinity) {
+        expect(value).to.deep.equal({ doubleValue: '-Infinity' });
       } else {
-        expect(value.value()).to.equal(primitiveValue);
+        expect(value).to.deep.equal({ doubleValue: primitiveValue });
       }
     }
   });
@@ -100,7 +85,7 @@ describe('FieldValue', () => {
     const nullValue = wrap(null);
 
     expect(typeOrder(nullValue)).to.equal(TypeOrder.NullValue);
-    expect(nullValue.value()).to.equal(null);
+    expect(nullValue).to.deep.equal({ nullValue: 'NULL_VALUE' });
   });
 
   it('can parse booleans', () => {
@@ -110,8 +95,8 @@ describe('FieldValue', () => {
     expect(typeOrder(trueValue)).to.equal(TypeOrder.BooleanValue);
     expect(typeOrder(falseValue)).to.equal(TypeOrder.BooleanValue);
 
-    expect(trueValue.value()).to.equal(true);
-    expect(falseValue.value()).to.equal(false);
+    expect(trueValue).to.deep.equal({ booleanValue: true });
+    expect(falseValue).to.deep.equal({ booleanValue: false });
   });
 
   it('can parse dates', () => {
@@ -121,8 +106,12 @@ describe('FieldValue', () => {
     expect(typeOrder(dateValue1)).to.equal(TypeOrder.TimestampValue);
     expect(typeOrder(dateValue2)).to.equal(TypeOrder.TimestampValue);
 
-    expect(dateValue1.value()).to.deep.equal(Timestamp.fromDate(date1));
-    expect(dateValue2.value()).to.deep.equal(Timestamp.fromDate(date2));
+    expect(dateValue1).to.deep.equal({
+      timestampValue: { seconds: 1462176300, nanos: 0 }
+    });
+    expect(dateValue2).to.deep.equal({
+      timestampValue: { seconds: 1466443230, nanos: 0 }
+    });
   });
 
   it('can parse geo points', () => {
@@ -134,30 +123,42 @@ describe('FieldValue', () => {
     expect(typeOrder(value1)).to.equal(TypeOrder.GeoPointValue);
     expect(typeOrder(value2)).to.equal(TypeOrder.GeoPointValue);
 
-    expect((value1.value() as GeoPoint).latitude).to.equal(1.23);
-    expect((value1.value() as GeoPoint).longitude).to.equal(4.56);
-    expect((value2.value() as GeoPoint).latitude).to.equal(-20);
-    expect((value2.value() as GeoPoint).longitude).to.equal(100);
+    expect(value1).to.deep.equal({
+      geoPointValue: { latitude: 1.23, longitude: 4.56 }
+    });
+    expect(value2).to.deep.equal({
+      geoPointValue: { latitude: -20, longitude: 100 }
+    });
   });
 
   it('can parse bytes', () => {
     const bytesValue = wrap(blob(0, 1, 2));
-0
-    expect(typeOrder(bytesValue).to.equal(TypeOrder.BlobValue);
-    expect((bytesValue.value() as ByteString).toUint8Array()).to.deep.equal(
-      new Uint8Array([0, 1, 2])
-    );
+
+    expect(typeOrder(bytesValue)).to.equal(TypeOrder.BlobValue);
+    expect(bytesValue).to.deep.equal({ bytesValue: 'AAEC' });
   });
 
   it('can parse simple objects', () => {
     const objValue = wrap({ a: 'foo', b: 1, c: true, d: null });
 
-    expect(objValue).to.equal(TypeOrder.ObjectValue);
-    expect(objValue.value()).to.deep.equal({
-      a: 'foo',
-      b: 1,
-      c: true,
-      d: null
+    expect(typeOrder(objValue)).to.equal(TypeOrder.ObjectValue);
+    expect(objValue).to.deep.equal({
+      'mapValue': {
+        'fields': {
+          'a': {
+            'stringValue': 'foo'
+          },
+          'b': {
+            'integerValue': 1
+          },
+          'c': {
+            'booleanValue': true
+          },
+          'd': {
+            'nullValue': 'NULL_VALUE'
+          }
+        }
+      }
     });
   });
 
@@ -165,16 +166,57 @@ describe('FieldValue', () => {
     const objValue = wrap({ foo: { bar: 1, baz: [1, 2, { a: 'b' }] } });
 
     expect(typeOrder(objValue)).to.equal(TypeOrder.ObjectValue);
-    expect(objValue.value()).to.deep.equal({
-      foo: { bar: 1, baz: [1, 2, { a: 'b' }] }
+    expect(objValue).to.deep.equal({
+      'mapValue': {
+        'fields': {
+          'foo': {
+            'mapValue': {
+              'fields': {
+                'bar': {
+                  'integerValue': 1
+                },
+                'baz': {
+                  'arrayValue': {
+                    'values': [
+                      {
+                        'integerValue': 1
+                      },
+                      {
+                        'integerValue': 2
+                      },
+                      {
+                        'mapValue': {
+                          'fields': {
+                            'a': {
+                              'stringValue': 'b'
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     });
   });
 
   it('can parse empty objects', () => {
     const objValue = wrap({ foo: {} });
 
-    expect(typeOrder(objValue).to.equal(TypeOrder.ObjectValue);
-    expect(objValue.value()).to.deep.equal({ foo: {} });
+    expect(typeOrder(objValue)).to.equal(TypeOrder.ObjectValue);
+    expect(objValue).to.deep.equal({
+      'mapValue': {
+        'fields': {
+          'foo': {
+            'mapValue': {}
+          }
+        }
+      }
+    });
   });
 
   it('can extract fields', () => {
@@ -197,36 +239,78 @@ describe('FieldValue', () => {
     expect(objValue.field(field('bar'))).to.be.null;
     expect(objValue.field(field('bar.a'))).to.be.null;
 
-    expect(objValue.field(field('foo'))!.value()).to.deep.equal({
-      a: 1,
-      b: true,
-      c: 'string'
+    expect(objValue.field(field('foo'))).to.deep.equal({
+      'mapValue': {
+        'fields': {
+          'a': {
+            'integerValue': 1
+          },
+          'b': {
+            'booleanValue': true
+          },
+          'c': {
+            'stringValue': 'string'
+          }
+        }
+      }
     });
-    expect(objValue.field(field('foo.a'))!.value()).to.equal(1);
-    expect(objValue.field(field('foo.b'))!.value()).to.equal(true);
-    expect(objValue.field(field('foo.c'))!.value()).to.equal('string');
+    expect(objValue.field(field('foo.a'))).to.deep.equal({ integerValue: 1 });
+    expect(objValue.field(field('foo.b'))).to.deep.equal({
+      booleanValue: true
+    });
+    expect(objValue.field(field('foo.c'))).to.deep.equal({
+      stringValue: 'string'
+    });
   });
 
   it('can overwrite existing fields', () => {
     const objValue = wrapObject({ foo: 'foo-value' });
 
     const objValue2 = setField(objValue, 'foo', wrap('new-foo-value'));
-    expect(objValue.value()).to.deep.equal({
-      foo: 'foo-value'
+    expect(objValue.proto).to.deep.equal({
+      'mapValue': {
+        'fields': {
+          'foo': {
+            'stringValue': 'foo-value'
+          }
+        }
+      }
     }); // unmodified original
-    expect(objValue2.value()).to.deep.equal({ foo: 'new-foo-value' });
+    expect(objValue2.proto).to.deep.equal({
+      'mapValue': {
+        'fields': {
+          'foo': {
+            'stringValue': 'new-foo-value'
+          }
+        }
+      }
+    });
   });
 
   it('can add new fields', () => {
     const objValue = wrapObject({ foo: 'foo-value' });
 
     const objValue2 = setField(objValue, 'bar', wrap('bar-value'));
-    expect(objValue.value()).to.deep.equal({
-      foo: 'foo-value'
+    expect(objValue.proto).to.deep.equal({
+      'mapValue': {
+        'fields': {
+          'foo': {
+            'stringValue': 'foo-value'
+          }
+        }
+      }
     }); // unmodified original
-    expect(objValue2.value()).to.deep.equal({
-      foo: 'foo-value',
-      bar: 'bar-value'
+    expect(objValue2.proto).to.deep.equal({
+      'mapValue': {
+        'fields': {
+          'bar': {
+            'stringValue': 'bar-value'
+          },
+          'foo': {
+            'stringValue': 'foo-value'
+          }
+        }
+      }
     });
   });
 
@@ -234,27 +318,61 @@ describe('FieldValue', () => {
     let objValue = ObjectValue.EMPTY;
     objValue = objValue
       .toBuilder()
-      .set(field('a'), valueOf('a'))
+      .set(field('a'), wrap('a'))
       .build();
     objValue = objValue
       .toBuilder()
-      .set(field('b'), valueOf('b'))
-      .set(field('c'), valueOf('c'))
+      .set(field('b'), wrap('b'))
+      .set(field('c'), wrap('c'))
       .build();
 
-    expect(objValue.value()).to.deep.equal({ a: 'a', b: 'b', c: 'c' });
+    expect(objValue.proto).to.deep.equal({
+      'mapValue': {
+        'fields': {
+          'a': {
+            'stringValue': 'a'
+          },
+          'b': {
+            'stringValue': 'b'
+          },
+          'c': {
+            'stringValue': 'c'
+          }
+        }
+      }
+    });
   });
 
   it('can implicitly create objects', () => {
     const objValue = wrapObject({ foo: 'foo-value' });
 
     const objValue2 = setField(objValue, 'a.b', wrap('b-value'));
-    expect(objValue.value()).to.deep.equal({
-      foo: 'foo-value'
+    expect(objValue.proto).to.deep.equal({
+      'mapValue': {
+        'fields': {
+          'foo': {
+            'stringValue': 'foo-value'
+          }
+        }
+      }
     }); // unmodified original
-    expect(objValue2.value()).to.deep.equal({
-      foo: 'foo-value',
-      a: { b: 'b-value' }
+    expect(objValue2.proto).to.deep.equal({
+      'mapValue': {
+        'fields': {
+          'a': {
+            'mapValue': {
+              'fields': {
+                'b': {
+                  'stringValue': 'b-value'
+                }
+              }
+            }
+          },
+          'foo': {
+            'stringValue': 'foo-value'
+          }
+        }
+      }
     });
   });
 
@@ -262,21 +380,68 @@ describe('FieldValue', () => {
     const objValue = wrapObject({ foo: 'foo-value' });
 
     const objValue2 = setField(objValue, 'foo.bar', wrap('bar-value'));
-    expect(objValue.value()).to.deep.equal({
-      foo: 'foo-value'
+    expect(objValue.proto).to.deep.equal({
+      'mapValue': {
+        'fields': {
+          'foo': {
+            'stringValue': 'foo-value'
+          }
+        }
+      }
     }); // unmodified original
-    expect(objValue2.value()).to.deep.equal({ foo: { bar: 'bar-value' } });
+    expect(objValue2.proto).to.deep.equal({
+      'mapValue': {
+        'fields': {
+          'foo': {
+            'mapValue': {
+              'fields': {
+                'bar': {
+                  'stringValue': 'bar-value'
+                }
+              }
+            }
+          }
+        }
+      }
+    });
   });
 
   it('can add to nested objects', () => {
     const objValue = wrapObject({ foo: { bar: 'bar-value' } });
 
     const objValue2 = setField(objValue, 'foo.baz', wrap('baz-value'));
-    expect(objValue.value()).to.deep.equal({
-      foo: { bar: 'bar-value' }
+    expect(objValue.proto).to.deep.equal({
+      'mapValue': {
+        'fields': {
+          'foo': {
+            'mapValue': {
+              'fields': {
+                'bar': {
+                  'stringValue': 'bar-value'
+                }
+              }
+            }
+          }
+        }
+      }
     }); // unmodified original
-    expect(objValue2.value()).to.deep.equal({
-      foo: { bar: 'bar-value', baz: 'baz-value' }
+    expect(objValue2.proto).to.deep.equal({
+      'mapValue': {
+        'fields': {
+          'foo': {
+            'mapValue': {
+              'fields': {
+                'bar': {
+                  'stringValue': 'bar-value'
+                },
+                'baz': {
+                  'stringValue': 'baz-value'
+                }
+              }
+            }
+          }
+        }
+      }
     });
   });
 
@@ -284,11 +449,27 @@ describe('FieldValue', () => {
     const objValue = wrapObject({ foo: 'foo-value', bar: 'bar-value' });
 
     const objValue2 = deleteField(objValue, 'foo');
-    expect(objValue.value()).to.deep.equal({
-      foo: 'foo-value',
-      bar: 'bar-value'
+    expect(objValue.proto).to.deep.equal({
+      'mapValue': {
+        'fields': {
+          'bar': {
+            'stringValue': 'bar-value'
+          },
+          'foo': {
+            'stringValue': 'foo-value'
+          }
+        }
+      }
     }); // unmodified original
-    expect(objValue2.value()).to.deep.equal({ bar: 'bar-value' });
+    expect(objValue2.proto).to.deep.equal({
+      'mapValue': {
+        'fields': {
+          'bar': {
+            'stringValue': 'bar-value'
+          }
+        }
+      }
+    });
   });
 
   it('can delete nested keys', () => {
@@ -297,10 +478,39 @@ describe('FieldValue', () => {
     });
 
     const objValue2 = deleteField(objValue, 'foo.bar');
-    expect(objValue.value()).to.deep.equal({
-      foo: { bar: 'bar-value', baz: 'baz-value' }
+    expect(objValue.proto).to.deep.equal({
+      'mapValue': {
+        'fields': {
+          'foo': {
+            'mapValue': {
+              'fields': {
+                'bar': {
+                  'stringValue': 'bar-value'
+                },
+                'baz': {
+                  'stringValue': 'baz-value'
+                }
+              }
+            }
+          }
+        }
+      }
     }); // unmodified original
-    expect(objValue2.value()).to.deep.equal({ foo: { baz: 'baz-value' } });
+    expect(objValue2.proto).to.deep.equal({
+      'mapValue': {
+        'fields': {
+          'foo': {
+            'mapValue': {
+              'fields': {
+                'baz': {
+                  'stringValue': 'baz-value'
+                }
+              }
+            }
+          }
+        }
+      }
+    });
   });
 
   it('can delete added keys', () => {
@@ -308,34 +518,73 @@ describe('FieldValue', () => {
 
     objValue = objValue
       .toBuilder()
-      .set(field('a'), valueOf('a'))
+      .set(field('a'), wrap('a'))
       .delete(field('a'))
       .build();
 
-    expect(objValue.value()).to.deep.equal({});
+    expect(objValue.proto).to.deep.equal({ mapValue: {} });
   });
 
   it('can delete, resulting in empty object', () => {
     const objValue = wrapObject({ foo: { bar: 'bar-value' } });
 
     const objValue2 = deleteField(objValue, 'foo.bar');
-    expect(objValue.value()).to.deep.equal({
-      foo: { bar: 'bar-value' }
+    expect(objValue.proto).to.deep.equal({
+      'mapValue': {
+        'fields': {
+          'foo': {
+            'mapValue': {
+              'fields': {
+                'bar': {
+                  'stringValue': 'bar-value'
+                }
+              }
+            }
+          }
+        }
+      }
     }); // unmodified original
-    expect(objValue2.value()).to.deep.equal({ foo: {} });
+    expect(objValue2.proto).to.deep.equal({
+      'mapValue': {
+        'fields': {
+          'foo': {
+            'mapValue': {
+              'fields': {}
+            }
+          }
+        }
+      }
+    });
   });
 
   it('will not delete nested keys on primitive values', () => {
     const objValue = wrapObject({ foo: { bar: 'bar-value' }, a: 1 });
 
-    const expected = { foo: { bar: 'bar-value' }, a: 1 };
+    const expected = {
+      'mapValue': {
+        'fields': {
+          'a': {
+            'integerValue': 1
+          },
+          'foo': {
+            'mapValue': {
+              'fields': {
+                'bar': {
+                  'stringValue': 'bar-value'
+                }
+              }
+            }
+          }
+        }
+      }
+    };
     const objValue2 = deleteField(objValue, 'foo.baz');
     const objValue3 = deleteField(objValue, 'foo.bar.baz');
     const objValue4 = deleteField(objValue, 'a.b');
-    expect(objValue.value()).to.deep.equal(expected);
-    expect(objValue2.value()).to.deep.equal(expected);
-    expect(objValue3.value()).to.deep.equal(expected);
-    expect(objValue4.value()).to.deep.equal(expected);
+    expect(objValue.proto).to.deep.equal(expected);
+    expect(objValue2.proto).to.deep.equal(expected);
+    expect(objValue3.proto).to.deep.equal(expected);
+    expect(objValue4.proto).to.deep.equal(expected);
   });
 
   it('can delete multiple fields', () => {
@@ -351,7 +600,11 @@ describe('FieldValue', () => {
       .delete(field('c'))
       .build();
 
-    expect(objValue.value()).to.deep.equal({});
+    expect(objValue.proto).to.deep.equal({
+      'mapValue': {
+        'fields': {}
+      }
+    });
   });
 
   it('provides field mask', () => {
@@ -371,7 +624,6 @@ describe('FieldValue', () => {
     const actualMask = objValue.fieldMask();
     expect(actualMask.isEqual(expectedMask)).to.be.true;
   });
-
 
   function setField(
     objectValue: ObjectValue,
@@ -393,5 +645,4 @@ describe('FieldValue', () => {
       .delete(field(fieldPath))
       .build();
   }
-
 });

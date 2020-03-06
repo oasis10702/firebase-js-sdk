@@ -17,8 +17,8 @@
 
 import { expect } from 'chai';
 
-import {field, wrap, wrapObject} from '../../util/helpers';
-import {ObjectValue} from "../../../src/model/field_value";
+import { field, wrap, wrapObject } from '../../util/helpers';
+import { ObjectValue } from '../../../src/model/field_value';
 
 describe('ObjectValueBuilder', () => {
   it('supports empty builders', () => {
@@ -211,5 +211,4 @@ describe('ObjectValueBuilder', () => {
     const object = builder.build();
     expect(object.isEqual(wrapObject({ a: { b: 'foo' } }))).to.be.true;
   });
-  
 });

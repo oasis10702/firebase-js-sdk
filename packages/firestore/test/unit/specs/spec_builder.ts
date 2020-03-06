@@ -886,7 +886,7 @@ export class SpecBuilder {
           return [
             filter.field.canonicalString(),
             filter.op.name,
-            filter.value.value()
+            filter.value // TODO(mrschmidt)
           ] as SpecQueryFilter;
         } else {
           return fail('Unknown filter: ' + filter);
@@ -909,7 +909,7 @@ export class SpecBuilder {
       return {
         key: SpecBuilder.keyToSpec(doc.key),
         version: doc.version.toMicroseconds(),
-        value: doc.data().value(),
+        value: null, // TODO(mrschmidt)
         options: {
           hasLocalMutations: doc.hasLocalMutations,
           hasCommittedMutations: doc.hasCommittedMutations

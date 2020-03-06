@@ -60,44 +60,44 @@ describeSpec('Queries:', [], () => {
       });
   });
 
-  specTest('Collection Group query with mutations', [], () => {
-    const cgQuery = new Query(ResourcePath.EMPTY_PATH, 'cg');
-    const cgQueryWithFilter = cgQuery.addFilter(filter('val', '==', 1));
-    const cachedDocs = [
-      doc('cg/1', 1000, { val: 1 }),
-      doc('not-cg/nope', 1000, { val: 1 })
-    ];
-    const toWrite1 = doc('cg/2', 0, { val: 2 }, { hasLocalMutations: true });
-    const toWrite2 = doc(
-      'not-cg/nope/cg/3',
-      0,
-      { val: 1 },
-      { hasLocalMutations: true }
-    );
-    const toWrite3 = doc(
-      'not-cg2/nope',
-      0,
-      { val: 1 },
-      { hasLocalMutations: true }
-    );
-
-    return specWithCachedDocs(...cachedDocs)
-      .userSets(toWrite1.key.toString(), toWrite1.data().value())
-      .userSets(toWrite2.key.toString(), toWrite2.data().value())
-      .userSets(toWrite3.key.toString(), toWrite3.data().value())
-      .userListens(cgQuery)
-      .expectEvents(cgQuery, {
-        added: [cachedDocs[0], toWrite1, toWrite2],
-        fromCache: true,
-        hasPendingWrites: true
-      })
-      .userListens(cgQueryWithFilter)
-      .expectEvents(cgQueryWithFilter, {
-        added: [cachedDocs[0], toWrite2],
-        fromCache: true,
-        hasPendingWrites: true
-      });
-  });
+  // specTest('Collection Group query with mutations', [], () => {
+  //   const cgQuery = new Query(ResourcePath.EMPTY_PATH, 'cg');
+  //   const cgQueryWithFilter = cgQuery.addFilter(filter('val', '==', 1));
+  //   const cachedDocs = [
+  //     doc('cg/1', 1000, { val: 1 }),
+  //     doc('not-cg/nope', 1000, { val: 1 })
+  //   ];
+  //   const toWrite1 = doc('cg/2', 0, { val: 2 }, { hasLocalMutations: true });
+  //   const toWrite2 = doc(
+  //     'not-cg/nope/cg/3',
+  //     0,
+  //     { val: 1 },
+  //     { hasLocalMutations: true }
+  //   );
+  //   const toWrite3 = doc(
+  //     'not-cg2/nope',
+  //     0,
+  //     { val: 1 },
+  //     { hasLocalMutations: true }
+  //   );
+  //
+  //   return specWithCachedDocs(...cachedDocs)
+  //     .userSets(toWrite1.key.toString(), toWrite1.data().value())
+  //     .userSets(toWrite2.key.toString(), toWrite2.data().value())
+  //     .userSets(toWrite3.key.toString(), toWrite3.data().value())
+  //     .userListens(cgQuery)
+  //     .expectEvents(cgQuery, {
+  //       added: [cachedDocs[0], toWrite1, toWrite2],
+  //       fromCache: true,
+  //       hasPendingWrites: true
+  //     })
+  //     .userListens(cgQueryWithFilter)
+  //     .expectEvents(cgQueryWithFilter, {
+  //       added: [cachedDocs[0], toWrite2],
+  //       fromCache: true,
+  //       hasPendingWrites: true
+  //     });
+  // });
 
   specTest(
     'Latency-compensated updates are included in query results',

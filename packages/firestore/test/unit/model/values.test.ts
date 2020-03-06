@@ -25,46 +25,49 @@ import {
   expectCorrectComparisonGroups,
   expectEqualitySets,
   key,
-  ref, wrap
-} from "../../util/helpers";
-import {Timestamp} from "../../../src/api/timestamp";
-import {GeoPoint} from "../../../src/api/geo_point";
-import * as typeUtils from "../../../src/util/types";
+  ref,
+  wrap
+} from '../../util/helpers';
+import { Timestamp } from '../../../src/api/timestamp';
+import { GeoPoint } from '../../../src/api/geo_point';
+import * as typeUtils from '../../../src/util/types';
 import {
-  canonicalId, compare,
+  canonicalId,
+  compare,
   equals,
-  estimateByteSize, refValue
-} from "../../../src/model/values";
-import {primitiveComparator} from "../../../src/util/misc";
-import {valueOf} from "../../../src/model/server_timestamps";
+  estimateByteSize,
+  refValue
+} from '../../../src/model/values';
+import { primitiveComparator } from '../../../src/util/misc';
+import { valueOf } from '../../../src/model/server_timestamps';
 
 describe('FieldValue', () => {
   const date1 = new Date(2016, 4, 2, 1, 5);
   const date2 = new Date(2016, 5, 20, 10, 20, 30);
-  
+
   it('compares values for equality', () => {
     // Each subarray compares equal to each other and false to every other value
     const values: api.Value[][] = [
-      [wrap(true), wrap((true))],
-      [wrap(false), wrap((false))],
-      [wrap(null), wrap((null))],
-      [wrap(0 / 0), wrap(Number.NaN), wrap((NaN))],
+      [wrap(true), wrap(true)],
+      [wrap(false), wrap(false)],
+      [wrap(null), wrap(null)],
+      [wrap(0 / 0), wrap(Number.NaN), wrap(NaN)],
       // -0.0 and 0.0 order the same but are not considered equal.
       [wrap(-0.0)],
       [wrap(0.0)],
       [wrap(1), { integerValue: 1 }],
       // Doubles and Integers order the same but are not considered equal.
       [{ doubleValue: 1.0 }],
-      [wrap(1.1), wrap((1.1))],
-      [wrap(blob(0, 1, 2)), wrap((blob(0, 1, 2)))],
+      [wrap(1.1), wrap(1.1)],
+      [wrap(blob(0, 1, 2)), wrap(blob(0, 1, 2))],
       [wrap(blob(0, 1))],
-      [wrap('string'), wrap(('string'))],
+      [wrap('string'), wrap('string')],
       [wrap('strin')],
       // latin small letter e + combining acute accent
       [wrap('e\u0301b')],
       // latin small letter e with acute accent
       [wrap('\u00e9a')],
-      [wrap(date1), wrap((Timestamp.fromDate(date1)))],
+      [wrap(date1), wrap(Timestamp.fromDate(date1))],
       [wrap(date2)],
       [
         // NOTE: ServerTimestampValues can't be parsed via wrap().
@@ -72,15 +75,9 @@ describe('FieldValue', () => {
         valueOf(Timestamp.fromDate(date1), null)
       ],
       [valueOf(Timestamp.fromDate(date2), null)],
-      [
-        wrap(new GeoPoint(0, 1)),
-        wrap((new GeoPoint(0, 1)))
-      ],
+      [wrap(new GeoPoint(0, 1)), wrap(new GeoPoint(0, 1))],
       [wrap(new GeoPoint(1, 0))],
-      [
-        wrap(ref('project', 'coll/doc1')),
-        wrap((ref('project', 'coll/doc1')))
-      ],
+      [wrap(ref('project', 'coll/doc1')), wrap(ref('project', 'coll/doc1'))],
       [wrap(ref('project', 'coll/doc2'))],
       [wrap(['foo', 'bar']), wrap(['foo', 'bar'])],
       [wrap(['foo', 'bar', 'baz'])],
@@ -96,37 +93,28 @@ describe('FieldValue', () => {
   it('normalizes values for equality', () => {
     // Each subarray compares equal to each other and false to every other value
     const values: api.Value[][] = [
+      [{ integerValue: '1' }, { integerValue: 1 }],
+      [{ doubleValue: '1.0' }, { doubleValue: 1.0 }],
       [
-        ({ integerValue: '1' }),
-        ({ integerValue: 1 })
-      ],
-      [
-       ({ doubleValue: '1.0' }),
-       ({ doubleValue: 1.0 })
-      ],
-      [
-        ({ timestampValue: '2007-04-05T14:30:01Z' }),
-        ({ timestampValue: '2007-04-05T14:30:01.000Z' }),
-       ({ timestampValue: '2007-04-05T14:30:01.000000Z' }),
-       ({
+        { timestampValue: '2007-04-05T14:30:01Z' },
+        { timestampValue: '2007-04-05T14:30:01.000Z' },
+        { timestampValue: '2007-04-05T14:30:01.000000Z' },
+        {
           timestampValue: '2007-04-05T14:30:01.000000000Z'
-        }),
-        ({ timestampValue: { seconds: 1175783401 } }),
-   ({ timestampValue: { seconds: '1175783401' } }),
-       ({
+        },
+        { timestampValue: { seconds: 1175783401 } },
+        { timestampValue: { seconds: '1175783401' } },
+        {
           timestampValue: { seconds: 1175783401, nanos: 0 }
-        })
+        }
       ],
       [
-        ({ timestampValue: '2007-04-05T14:30:01.100Z' }),
-        ({
+        { timestampValue: '2007-04-05T14:30:01.100Z' },
+        {
           timestampValue: { seconds: 1175783401, nanos: 100000000 }
-        })
+        }
       ],
-      [
-        ({ bytesValue: new Uint8Array([0, 1, 2]) }),
-        ({ bytesValue: 'AAEC' })
-      ]
+      [{ bytesValue: new Uint8Array([0, 1, 2]) }, { bytesValue: 'AAEC' }]
     ];
     expectEqualitySets(values, (v1, v2) => equals(v1, v2));
   });
@@ -148,22 +136,12 @@ describe('FieldValue', () => {
       [wrap(typeUtils.MIN_SAFE_INTEGER)],
       [wrap(-1.1)],
       // Integers and Doubles order the same.
-      [
-         ({ integerValue: -1 }),
-        ({ doubleValue: -1 })
-      ],
+      [{ integerValue: -1 }, { doubleValue: -1 }],
       [wrap(-Number.MIN_VALUE)],
       // zeros all compare the same.
-      [
-    ({ integerValue: 0 }),
-     ({ doubleValue: 0 }),
-    ({ doubleValue: -0 })
-      ],
+      [{ integerValue: 0 }, { doubleValue: 0 }, { doubleValue: -0 }],
       [wrap(Number.MIN_VALUE)],
-      [
-       ({ integerValue: 1 }),
-      ({ doubleValue: 1 })
-      ],
+      [{ integerValue: 1 }, { doubleValue: 1 }],
       [wrap(1.1)],
       [wrap(typeUtils.MAX_SAFE_INTEGER)],
       [wrap(typeUtils.MAX_SAFE_INTEGER + 1)],
@@ -244,48 +222,36 @@ describe('FieldValue', () => {
 
   it('normalizes values for comparison', () => {
     const groups = [
+      [{ integerValue: '1' }, { integerValue: 1 }],
+      [{ doubleValue: '2' }, { doubleValue: 2 }],
       [
-        ({ integerValue: '1' }),
-        ({ integerValue: 1 })
+        { timestampValue: '2007-04-05T14:30:01Z' },
+        { timestampValue: { seconds: 1175783401 } }
       ],
       [
-        ({ doubleValue: '2' }),
-        ({ doubleValue: 2 })
-      ],
-      [
-        ({ timestampValue: '2007-04-05T14:30:01Z' }),
-        ({ timestampValue: { seconds: 1175783401 } })
-      ],
-      [
-        ({ timestampValue: '2007-04-05T14:30:01.999Z' }),
-        ({
+        { timestampValue: '2007-04-05T14:30:01.999Z' },
+        {
           timestampValue: { seconds: 1175783401, nanos: 999000000 }
-        })
+        }
       ],
       [
-        ({ timestampValue: '2007-04-05T14:30:02Z' }),
-        ({ timestampValue: { seconds: 1175783402 } })
+        { timestampValue: '2007-04-05T14:30:02Z' },
+        { timestampValue: { seconds: 1175783402 } }
       ],
       [
-        ({ timestampValue: '2007-04-05T14:30:02.100Z' }),
-        ({
+        { timestampValue: '2007-04-05T14:30:02.100Z' },
+        {
           timestampValue: { seconds: 1175783402, nanos: 100000000 }
-        })
+        }
       ],
       [
-        ({ timestampValue: '2007-04-05T14:30:02.100001Z' }),
-        ({
+        { timestampValue: '2007-04-05T14:30:02.100001Z' },
+        {
           timestampValue: { seconds: 1175783402, nanos: 100001000 }
-        })
+        }
       ],
-      [
-        ({ bytesValue: new Uint8Array([0, 1, 2]) }),
-        ({ bytesValue: 'AAEC' })
-      ],
-      [
-        ({ bytesValue: new Uint8Array([0, 1, 3]) }),
-        ({ bytesValue: 'AAED' })
-      ]
+      [{ bytesValue: new Uint8Array([0, 1, 2]) }, { bytesValue: 'AAEC' }],
+      [{ bytesValue: new Uint8Array([0, 1, 3]) }, { bytesValue: 'AAED' }]
     ];
 
     expectCorrectComparisonGroups(
@@ -349,9 +315,7 @@ describe('FieldValue', () => {
 
     for (const group of equalityGroups) {
       for (const element of group.elements) {
-        expect(estimateByteSize(element)).to.equal(
-          group.expectedByteSize
-        );
+        expect(estimateByteSize(element)).to.equal(group.expectedByteSize);
       }
     }
   });
@@ -362,7 +326,7 @@ describe('FieldValue', () => {
     const relativeGroups: api.Value[][] = [
       [wrap(blob(0)), wrap(blob(0, 1))],
       [
-       valueOf(Timestamp.fromMillis(100), null),
+        valueOf(Timestamp.fromMillis(100), null),
         valueOf(Timestamp.now(), wrap(null))
       ],
       [
@@ -394,17 +358,13 @@ describe('FieldValue', () => {
     expect(canonicalId(wrap(false))).to.equal('false');
     expect(canonicalId(wrap(1))).to.equal('1');
     expect(canonicalId(wrap(1.1))).to.equal('1.1');
-    expect(canonicalId(wrap(new Timestamp(30, 60)))).to.equal(
-      'time(30,60)'
-    );
+    expect(canonicalId(wrap(new Timestamp(30, 60)))).to.equal('time(30,60)');
     expect(canonicalId(wrap('a'))).to.equal('a');
     expect(canonicalId(wrap(blob(1, 2, 3)))).to.equal('AQID');
-    expect(
-      canonicalId(refValue(dbId('p1', 'd1'), key('c1/doc1')))
-    ).to.equal('projects/p1/databases/d1/documents/c1/doc1');
-    expect(canonicalId(wrap(new GeoPoint(30, 60)))).to.equal(
-      'geo(30,60)'
+    expect(canonicalId(refValue(dbId('p1', 'd1'), key('c1/doc1')))).to.equal(
+      'projects/p1/databases/d1/documents/c1/doc1'
     );
+    expect(canonicalId(wrap(new GeoPoint(30, 60)))).to.equal('geo(30,60)');
     expect(canonicalId(wrap([1, 2, 3]))).to.equal('[1,2,3]');
     expect(
       canonicalId(

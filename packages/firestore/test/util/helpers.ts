@@ -154,8 +154,7 @@ export function wrap(value: unknown): api.Value {
 }
 
 export function wrapObject(obj: JsonObject<unknown>): ObjectValue {
-  // Cast is safe here because value passed in is a map
-  return wrap(obj) as ObjectValue;
+  return new ObjectValue(wrap(obj));
 }
 
 export function dbId(project: string, database?: string): DatabaseId {

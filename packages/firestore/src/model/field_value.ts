@@ -15,16 +15,12 @@
  * limitations under the License.
  */
 
-import { assert, } from '../util/assert';
+import { assert } from '../util/assert';
 import { FieldMask } from './mutation';
 import { FieldPath } from './path';
 import { SortedSet } from '../util/sorted_set';
 import * as api from '../protos/firestore_proto_api';
-import {
-  equals,
-  estimateByteSize,
-  typeOrder
-} from './values';
+import { equals, estimateByteSize, isMapValue, typeOrder } from './values';
 import { Blob } from '../api/blob';
 import { forEach } from '../util/obj';
 import { isServerTimestamp } from './server_timestamps';
@@ -98,13 +94,13 @@ export class ObjectValue {
           return null;
         }
         value = value.mapValue!.fields[path.get(i)];
-        if (typeOrder(value) !== TypeOrder.ObjectValue) {
+        if (!isMapValue(value)) {
           return null;
         }
       }
 
       value = (value.mapValue!.fields || {})[path.lastSegment()];
-      return value;
+      return value || null;
     }
   }
 
@@ -279,12 +275,11 @@ export class ObjectValueBuilder {
     let modified = false;
 
     const existingValue = this.baseObject.field(currentPath);
-    const resultAtPath =
-      existingValue instanceof ObjectValue
-        ? // If there is already data at the current path, base our
-          // modifications on top of the existing data.
-          { ...existingValue.proto.mapValue!.fields }
-        : {};
+    const resultAtPath = isMapValue(existingValue)
+      ? // If there is already data at the current path, base our
+        // modifications on top of the existing data.
+        { ...existingValue!.mapValue!.fields }
+      : {};
 
     currentOverlays.forEach((value, pathSegment) => {
       if (value instanceof Map) {

@@ -20,11 +20,6 @@ import { PublicFieldValue as FieldValue } from '../../../src/api/field_value';
 import { Timestamp } from '../../../src/api/timestamp';
 import { Document, MaybeDocument } from '../../../src/model/document';
 import {
-  IntegerValue,
-  ServerTimestampValue,
-  TimestampValue
-} from '../../../src/model/field_value';
-import {
   Mutation,
   MutationResult,
   Precondition
@@ -51,6 +46,7 @@ import {
   wrap,
   wrapObject
 } from '../../util/helpers';
+import { valueOf } from '../../../src/model/server_timestamps';
 
 describe('Mutation', () => {
   addEqualityMatcher();
@@ -200,7 +196,7 @@ describe('Mutation', () => {
       baz: 'baz-value'
     })
       .toBuilder()
-      .set(field('foo.bar'), new ServerTimestampValue(timestamp, null))
+      .set(field('foo.bar'), valueOf(timestamp, null))
       .build();
     const expectedDoc = new Document(key('collection/key'), version(0), data, {
       hasLocalMutations: true
@@ -385,7 +381,7 @@ describe('Mutation', () => {
     });
 
     const mutationResult = new MutationResult(version(1), [
-      new TimestampValue(timestamp)
+      { timestampValue: { seconds: 1, nanos: 1 } }
     ]);
     const transformedDoc = transform.applyToRemoteDocument(
       baseDoc,
@@ -496,7 +492,7 @@ describe('Mutation', () => {
     });
 
     const mutationResult = new MutationResult(version(1), [
-      new IntegerValue(3)
+      { integerValue: 3 }
     ]);
     const transformedDoc = transform.applyToRemoteDocument(
       baseDoc,
@@ -662,7 +658,7 @@ describe('Mutation', () => {
     };
     const transform = transformMutation('collection/key', allTransforms);
 
-    const expectedBaseValue = wrap({
+    const expectedBaseValue = wrapObject({
       double: 42.0,
       long: 42,
       text: 0,
@@ -693,6 +689,6 @@ describe('Mutation', () => {
     );
 
     expect(mutatedDoc).to.be.an.instanceof(Document);
-    expect((mutatedDoc as Document).field(field('sum'))!.value()).to.equal(2);
+    expect((mutatedDoc as Document).field(field('sum'))).to.deep.equal(2);
   });
 });
