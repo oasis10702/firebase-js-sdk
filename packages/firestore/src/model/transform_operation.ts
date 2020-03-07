@@ -195,7 +195,7 @@ export class ArrayRemoveTransformOperation implements TransformOperation {
  * arithmetic is used and precision loss can occur for values greater than 2^53.
  */
 export class NumericIncrementTransformOperation implements TransformOperation {
-  constructor(readonly operand: api.Value) {
+  constructor(readonly operand: api.Value, readonly useProto3Json: string) {
     assert(isNumber(operand), 'NUMERIC_ADD transform requires a NumberValue');
   }
 

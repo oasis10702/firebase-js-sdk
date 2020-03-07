@@ -49,6 +49,7 @@ export type ServerTimestampBehavior = 'estimate' | 'previous' | 'none';
 export class UserDataWriter<T> {
   constructor(
     private readonly firestore: Firestore,
+    private readonly useProto3Json: boolean,
     private readonly timestampsInSnapshots: boolean,
     private readonly serverTimestampBehavior?: ServerTimestampBehavior,
     private readonly converter?: firestore.FirestoreDataConverter<T>
