@@ -39,6 +39,7 @@ import {
 import { fail } from '../util/assert';
 import { GeoPoint } from './geo_point';
 import { DatabaseId } from '../core/database_info';
+import {isSafeInteger} from "../util/types";
 
 export type ServerTimestampBehavior = 'estimate' | 'previous' | 'none';
 

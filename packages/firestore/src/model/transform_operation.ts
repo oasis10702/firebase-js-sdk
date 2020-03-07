@@ -29,6 +29,7 @@ import {
 } from './values';
 import { valueOf } from './server_timestamps';
 import { isSafeInteger } from '../util/types';
+import {serializeNumber} from "../api/user_data_reader";
 
 /** Represents a transform within a TransformMutation. */
 export interface TransformOperation {
@@ -195,7 +196,7 @@ export class ArrayRemoveTransformOperation implements TransformOperation {
  * arithmetic is used and precision loss can occur for values greater than 2^53.
  */
 export class NumericIncrementTransformOperation implements TransformOperation {
-  constructor(readonly operand: api.Value, readonly useProto3Json: string) {
+  constructor(readonly operand: api.Value, readonly useProto3Json: boolean) {
     assert(isNumber(operand), 'NUMERIC_ADD transform requires a NumberValue');
   }
 
@@ -203,28 +204,12 @@ export class NumericIncrementTransformOperation implements TransformOperation {
     previousValue: api.Value | null,
     localWriteTime: Timestamp
   ): api.Value {
-    const baseValue = this.asNumber(this.computeBaseValue(previousValue));
     // PORTING NOTE: Since JavaScript's integer arithmetic is limited to 53 bit
     // precision and resolves overflows by reducing precision, we do not
     // manually cap overflows at 2^63.
-
-    // Return an integer value iff the previous value and the operand is an
-    // integer.
-    if (isSafeInteger(baseValue) && isInteger(this.operand)) {
-      const integerValue = baseValue + this.asNumber(this.operand);
-      return { integerValue };
-    } else {
-      const doubleValue = baseValue + this.asNumber(this.operand);
-
-      if (isNaN(doubleValue)) {
-        return { doubleValue: 'NaN' };
-      } else if (doubleValue === Infinity) {
-        return { doubleValue: 'Infinity' };
-      } else if (doubleValue === -Infinity) {
-        return { doubleValue: '-Infinity' };
-      }
-      return { doubleValue };
-    }
+    const baseValue = this.computeBaseValue(previousValue);
+    const sum = this.asNumber(baseValue) + this.asNumber(this.operand);
+    return serializeNumber(sum, this.useProto3Json);
   }
 
   applyToRemoteDocument(

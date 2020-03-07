@@ -63,6 +63,7 @@ import {
 } from './field_value';
 import { GeoPoint } from './geo_point';
 import { ObjectValue } from '../model/field_value';
+import {isSafeInteger} from "../util/types";
 
 const RESERVED_FIELD_REGEX = /^__.*__$/;
 
@@ -703,23 +704,7 @@ export class UserDataReader {
     if (input === null) {
       return { nullValue: 'NULL_VALUE' };
     } else if (typeof input === 'number') {
-      if (typeUtils.isSafeInteger(input)) {
-        return { integerValue: input };
-      } else {
-        if (context.useProto3Json) {
-          // Proto 3 let's us encode NaN and Infinity as string values as
-          // expected by the backend. This is currently not checked by our unit
-          // tests because they rely on protobuf.js.
-          if (isNaN(input)) {
-            return { doubleValue: 'NaN' } as {};
-          } else if (input === Infinity) {
-            return { doubleValue: 'Infinity' } as {};
-          } else if (input === -Infinity) {
-            return { doubleValue: '-Infinity' } as {};
-          }
-        }
-        return { doubleValue: input };
-      }
+     return serializeNumber(input, this.useProto3Json);
     } else if (typeof input === 'boolean') {
       return { booleanValue: input };
     } else if (typeof input === 'string') {
@@ -884,4 +869,24 @@ function fieldPathFromDotSeparatedString(
  */
 function errorMessage(error: Error | object): string {
   return error instanceof Error ? error.message : error.toString();
+}
+
+export function serializeNumber(value: number, useProto3Json: boolean) : api.Value {
+  if (isSafeInteger(value)) {
+    return { integerValue: '' + value};
+  } else {
+    if (useProto3Json) {
+      // Proto 3 let's us encode NaN and Infinity as string values as
+      // expected by the backend. This is currently not checked by our unit
+      // tests because they rely on protobuf.js.
+      if (isNaN(value)) {
+        return { doubleValue: 'NaN' };
+      } else if (value === Infinity) {
+        return { doubleValue: 'Infinity' };
+      } else if (value === -Infinity) {
+        return { doubleValue: '-Infinity'} ;
+      }
+    }
+    return { doubleValue:value };
+  }
 }
